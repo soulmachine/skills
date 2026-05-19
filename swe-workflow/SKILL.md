@@ -16,21 +16,35 @@ The idiomatic software-engineer pipeline: clarify the idea → spec it → slice
 │     /grill-with-docs ──► CONTEXT.md, ADRs                            │
 │              (resolve domain language; capture decisions)            │
 │                                                                      │
-│  2. What does done look like?                                        │
-│     /to-prd ──► PRD (GitHub issue)                                   │
+│  2. What features does this break into?                              │
+│     Stub `.scratch/<feature-slug>/` per feature surfaced             │
+│              (product→engineering bridge — features fall out of      │
+│               /grill-with-docs; manual, no dedicated skill)          │
+│                                                                      │
+│  3. What does done look like?                                        │
+│     /to-prd ──► PRD (auto-labeled `ready-for-agent`)                 │
 │              (Problem / Solution / User Stories /                    │
 │               Implementation Decisions / Testing Decisions / Scope)  │
 │                                                                      │
-│  3. What are the units of work?                                      │
+│  4. What are the units of work?                                      │
 │     /to-issues ──► N tracer-bullet issues                            │
-│              (vertical slices, HITL/AFK, blocked-by chain, AC)       │
-│                                                                      │
-│  4. What's the state of each unit?                                   │
-│     /triage ──► state machine + AGENT-BRIEF                          │
-│              (needs-info / ready-for-agent /                         │
-│               ready-for-human / wontfix)                             │
+│              (vertical slices, all auto-labeled `ready-for-agent`    │
+│               — /triage NOT in the critical path)                    │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
+
+    ┌─── Parallel concern (NOT in the chain) ──────────────────────┐
+    │                                                              │
+    │  /triage ──► state machine over the issue tracker            │
+    │              needs-info / ready-for-agent /                  │
+    │              ready-for-human / wontfix                       │
+    │                                                              │
+    │  Required for issues filed OUTSIDE the chain (user bug       │
+    │  reports, external contributions). Redundant for /to-issues  │
+    │  output (already auto-labeled).                              │
+    │                                                              │
+    └──────────────────────────────────────────────────────────────┘
+
                                   │
                   (Agent grabs ONE `ready-for-agent` issue)
                                   │
@@ -58,6 +72,25 @@ The idiomatic software-engineer pipeline: clarify the idea → spec it → slice
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
+## Design philosophy
+
+This is a **chain of small skills, not a framework.** Three principles guard against drifting into framework opacity:
+
+1. **Own the process.** "Process" here means *deciding what goes into context at each stage*. Every skill in the chain is a markdown file you can read, edit, swap, or skip — there is no opaque orchestrator.
+2. **Every artifact is observable.** PRDs, issues, AGENT-BRIEFs, `task_plan.md`, `findings.md`, `progress.md` — all human-readable markdown, all `cat`-able at any point.
+3. **Ephemeral state is intentional.** Per-issue worktrees and planning files die when the PR ships. Deliberate defense against spec/plan drift accumulating into a "ball of mud" over time.
+
+Operating maxim (Matt Pocock, after [surveying ~2000 AI coding course participants on framework dissatisfaction](https://x.com/mattpocockuk/status/2044029094942159126)): *"a good framework hands a lot of control over to the user and is easy to observe."* If a proposed addition reduces either, reject it — even if it's borrowed from a framework that looks useful.
+
+**Concrete commitments** derived from these principles:
+
+- **Instructions-only, no scripts.** Deterministic operations are documented as instructions the agent runs, not wrapped in scripts. Every script reintroduced would move the chain toward the opacity Matt's surveyed users rejected.
+- **Transparent markdown all the way down.** Five chain stages plus `/triage` as a parallel concern — every link is either a markdown skill or a manual filesystem action, none of them opaque. The direct test of the operating maxim above.
+
+**Engineering-side, by design.** The mattpocock toolchain assumes features come from product thinking (user needs, business goals) that lives outside this skill ecosystem. Stage 2 (`Stub .scratch/<feature-slug>/`) is the deliberate seam: features get *enumerated* here, but *discovered* elsewhere — in user interviews, product strategy, sales conversations, whatever your team uses. This toolchain has no opinion on that.
+
+See [REFERENCE.md](REFERENCE.md#how-this-differs-from-spec-kit-class-frameworks) for the comparison with spec-kit / BMAD / GSD.
+
 ## Where to enter the chain
 
 Don't always start at stage 1 — jump to where the chain actually breaks.
@@ -65,10 +98,11 @@ Don't always start at stage 1 — jump to where the chain actually breaks.
 | Entry signal | Start at |
 |--------------|----------|
 | Vocabulary fights, fuzzy terms, no glossary yet | 1 |
-| Glossary settled, no spec exists | 2 |
-| PRD exists but is one mega-issue | 3 |
-| Issues exist, nobody knows which to grab | 4 |
+| Domain understood, features not yet enumerated | 2 |
+| Feature picked, no PRD yet for this one | 3 |
+| PRD exists but is one mega-issue | 4 |
 | Picked a `ready-for-agent` issue, ready to implement | 5 |
+| External issue filed by a user, needs classification | (parallel: `/triage`) |
 
 ## Stage 5: worktree + planning-with-files
 
@@ -100,7 +134,7 @@ Priority order:
 1. **`$SWE_WORKFLOW_TRACKER`** env var (explicit override)
 2. **`tracker=<name>`** line in `.swe-workflow.conf` at the repo root
 3. **Auto-detect** from project signals:
-   - `.issues/` directory → `local-markdown`
+   - `.scratch/` directory → `local-markdown` (mattpocock's `.scratch/<feature>/` convention)
    - github remote + `gh` installed → `github`
    - gitlab remote + `glab` installed → `gitlab`
    - `.linear/` directory → `linear`
@@ -141,7 +175,7 @@ git branch --merged "$default_branch" \
 
 1. **PRD uses the glossary from stage 1.** If `to-prd` introduces terms that conflict with `CONTEXT.md`, loop back to `/grill-with-docs`.
 2. **Issues are tracer bullets, not horizontal layers.** Each is a thin vertical slice (schema → API → UI → tests). "Backend issue" + "frontend issue" is a smell — re-slice.
-3. **Triage is the spec→execution gate.** Nothing reaches stage 5 without `ready-for-agent` + an AGENT-BRIEF comment.
+3. **Only `ready-for-agent` issues enter execution.** `/to-issues` auto-applies the label on chain-created issues; `/triage` applies it to external issues (user reports, etc.). Either way, stage 5 reads from the label, not the source.
 4. **One issue = one worktree = one `task_plan.md`.** Filesystem isolation for parallel AFK agents. No exceptions.
 
 ## Don't double-track
