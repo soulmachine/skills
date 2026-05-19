@@ -12,6 +12,11 @@ The idiomatic software-engineer workflow: clarify the idea → spec it → slice
 ```
 ┌────────────────────── SPEC LAYER (mattpocock) ──────────────────────┐
 │                                                                      │
+│  0. How is this repo set up?                                         │
+│     /setup-matt-pocock-skills ──► AGENTS.md, docs/agents/            │
+│              (one-time: tracker, triage labels, doc layout —         │
+│               wires this repo's conventions into the chain)          │
+│                                                                      │
 │  1. What do I want?                                                  │
 │     /grill-with-docs ──► CONTEXT.md, ADRs                            │
 │              (resolve domain language; capture decisions)            │
@@ -32,18 +37,6 @@ The idiomatic software-engineer workflow: clarify the idea → spec it → slice
 │               — /triage NOT in the critical path)                    │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
-
-    ┌─── Parallel concern (NOT in the chain) ──────────────────────┐
-    │                                                              │
-    │  /triage ──► state machine over the issue tracker            │
-    │              needs-info / ready-for-agent /                  │
-    │              ready-for-human / wontfix                       │
-    │                                                              │
-    │  Required for issues filed OUTSIDE the chain (user bug       │
-    │  reports, external contributions). Redundant for /to-issues  │
-    │  output (already auto-labeled).                              │
-    │                                                              │
-    └──────────────────────────────────────────────────────────────┘
 
                                   │
                   (Agent grabs ONE `ready-for-agent` issue)
@@ -72,6 +65,12 @@ The idiomatic software-engineer workflow: clarify the idea → spec it → slice
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
+## Parallel concern: `/triage`
+
+`/triage` sits beside the chain, not inside it — a small state machine over the issue tracker (`needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`). Required for issues filed *outside* the chain (user bug reports, external contributions, ad-hoc feature requests); redundant for chain-created issues, since `/to-prd` and `/to-issues` auto-label `ready-for-agent` at creation.
+
+See [REFERENCE.md](REFERENCE.md#parallel-concern-triage--whats-actionable-for-external-issues) for the full state machine and per-state outputs.
+
 ## Design philosophy
 
 This is a **chain of small skills, not a framework.** Three principles guard against drifting into framework opacity:
@@ -85,7 +84,7 @@ Operating maxim (Matt Pocock, after [surveying ~2000 AI coding course participan
 **Concrete commitments** derived from these principles:
 
 - **Instructions-only, no scripts.** Deterministic operations are documented as instructions the agent runs, not wrapped in scripts. Every script reintroduced would move the chain toward the opacity Matt's surveyed users rejected.
-- **Transparent markdown all the way down.** Five chain stages plus `/triage` as a parallel concern — every link is a markdown skill you can read, edit, or replace without touching code. None of them opaque. The direct test of the operating maxim above.
+- **Transparent markdown all the way down.** Six chain stages plus `/triage` as a parallel concern — every link is a markdown skill you can read, edit, or replace without touching code. None of them opaque. The direct test of the operating maxim above.
 
 **Engineering-side, by design.** The mattpocock toolchain assumes features come from product thinking (user needs, business goals) that lives outside this skill ecosystem. Stage 2 (`/to-features`) is the deliberate seam: features get *enumerated* here (read from `CONTEXT.md` + ADRs), but *discovered* elsewhere — in user interviews, product strategy, sales conversations, whatever your team uses. This toolchain has no opinion on that.
 
@@ -97,6 +96,7 @@ Don't always start at stage 1 — jump to where the chain actually breaks.
 
 | Entry signal | Start at |
 |--------------|----------|
+| Fresh repo, no `## Agent skills` block or `docs/agents/` yet | 0 |
 | Vocabulary fights, fuzzy terms, no glossary yet | 1 |
 | Domain understood, features not yet enumerated | 2 |
 | Feature picked, no PRD yet for this one | 3 |

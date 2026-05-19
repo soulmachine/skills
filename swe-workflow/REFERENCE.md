@@ -2,6 +2,21 @@
 
 Detailed notes on each stage. Read this when something feels off, not on every invocation.
 
+## Stage 0: `/setup-matt-pocock-skills` — How is this repo set up?
+
+**Trigger**: a fresh repo (or one that hasn't adopted swe-workflow), with no `## Agent skills` block in `AGENTS.md`/`CLAUDE.md` and no `docs/agents/` directory.
+
+One-time per-repo bootstrap. It wires the toolchain into a specific repo by writing:
+
+- `## Agent skills` block in `AGENTS.md` (or `CLAUDE.md` if that's where the team keeps agent instructions) — declares which skills this repo uses and points at their per-repo docs.
+- `docs/agents/` directory — repo-local agent documentation: which issue tracker is in use (GitHub or local markdown), the triage label vocabulary, and the layout for domain docs (`CONTEXT.md`, ADRs, `FEATURES.md`).
+
+Downstream skills read this to know the repo's conventions: `/triage` learns which labels are valid here, stage 5 bootstrap learns where to fetch issues from (overriding the auto-detect in [Tracker selection](#tracker-selection)), `/grill-with-docs` learns whether `CONTEXT.md` should live at the root or under `src/<bounded-context>/`.
+
+**Skip this stage** when the repo already has the `## Agent skills` block and `docs/agents/` populated — running it again would clobber existing config. This is a *per-repo* bootstrap, not *per-feature*; once it's run, you don't run it again.
+
+**Not the same as spec-kit's "constitution" stage.** This is *tooling configuration* (where to fetch, what labels exist, where domain docs go), not *architectural invariants* (which patterns to follow, what the system must do). Those live in `CONTEXT.md` and ADRs and are produced by stage 1 — see the [framework comparison](#how-this-differs-from-spec-kit-class-frameworks) for why the distinction matters.
+
 ## Stage 1: `/grill-with-docs` — What do I want?
 
 **Trigger**: vague language, fuzzy boundaries, no shared vocabulary yet.
@@ -220,7 +235,7 @@ A [community survey (~2000 AI coding course participants, April 2026, by Matt Po
 
 This rules out some patterns from spec-kit-class even when they look useful:
 
-- **A "constitution" stage** (spec-kit's stage 0 for project-level invariants) was considered and rejected. Invariants already live in `CONTEXT.md` and `docs/adr/` (produced by `/grill-with-docs`). Adding a separate stage risks importing the framework opacity it claims to fight.
+- **A spec-kit-style "constitution" stage** (a dedicated step for project-level *architectural* invariants — patterns to follow, rules the system must obey) was considered and rejected. Architectural invariants already live in `CONTEXT.md` and `docs/adr/` (produced by `/grill-with-docs`); a separate constitution stage would import the framework opacity this chain claims to fight. swe-workflow's own [Stage 0](#stage-0-setup-matt-pocock-skills--how-is-this-repo-set-up) is a different beast — pure *tooling configuration* (tracker name, label vocabulary, doc layout), orthogonal to architectural rules.
 - **Framework-driven implementation** (like `/speckit.implement`) is replaced by the layered worktree + `/planning-with-files` + `/tdd` execution stage. More moving pieces, but each is observable.
 - **Long-lived spec artifacts in the repo** are avoided. Planning files (`task_plan.md`, `findings.md`, `progress.md`) live in worktrees and die at PR merge. Only the issue tracker and `CONTEXT.md`/ADRs survive across features.
 
