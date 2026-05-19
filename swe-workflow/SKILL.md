@@ -44,15 +44,17 @@ The idiomatic software-engineer workflow: clarify the idea → spec it → slice
                                   ▼
 ┌────────── EXECUTION LAYER (worktree + planning-with-files) ──────────┐
 │                                                                      │
-│  5. How do I ship each unit?                                         │
+│  5. How do I plan each unit?                                         │
 │     Fetch issue (per tracker) ──► worktree + branch + seed files     │
 │              (task_plan.md, findings.md, progress.md from AC)        │
 │                                                                      │
 │     /planning-with-files:plan ──► interview → refine the plan        │
 │              (sharpens phases, key questions, decisions to make)     │
 │                                                                      │
+│  6. How do I ship each unit?                                         │
 │     /planning-with-files:start ──► implement → commit                │
 │              (outer loop: phases, decisions, errors, findings)       │
+│              (apply karpathy-guidelines for code quality)            │
 │                                                                      │
 │     /tdd ──► red → green → refactor (per code-producing phase)       │
 │              (inner loop: one failing test → one minimal fix)        │
@@ -101,7 +103,8 @@ Don't always start at stage 1 — jump to where the chain actually breaks.
 | Domain understood, features not yet enumerated | 2 |
 | Feature picked, no PRD yet for this one | 3 |
 | PRD exists but is one mega-issue | 4 |
-| Picked a `ready-for-agent` issue, ready to implement | 5 |
+| Picked a `ready-for-agent` issue, ready to plan | 5 |
+| `task_plan.md` refined, ready to implement | 6 |
 | External issue filed by a user, needs classification | (parallel: `/triage`) |
 
 ## When is it done?
@@ -123,7 +126,7 @@ A feature's completion is mechanical: walk from the PRD to its child issues (via
 
 Software projects rarely "complete" — features keep getting added. If you need a hard milestone, layer on your tracker's mechanism (`gh milestone`, Linear cycles, release tags) and define "project complete" as that milestone closing. See [REFERENCE.md](REFERENCE.md#completion-signals) for per-tracker completion queries.
 
-## Stage 5: worktree + planning-with-files
+## Stages 5-6: worktree + planning-with-files
 
 The skill is **instructions-only** — there are no scripts. The agent performs each step manually, adapting to the team's issue tracker.
 
@@ -144,7 +147,8 @@ The skill is **instructions-only** — there are no scripts. The agent performs 
    | `findings.md` | Raw issue body + AGENT-BRIEF pasted verbatim. Safe sink for external content. |
    | `progress.md` | Initial session log entry with bootstrap timestamp. |
 
-6. **Invoke `/planning-with-files:plan`** to refine seeds via interview, then `/planning-with-files:start` to execute.
+6. **Invoke `/planning-with-files:plan`** to refine seeds via interview (Stage 5). Sharpens phases, surfaces key questions, captures decisions to make.
+7. **Invoke `/planning-with-files:start`** to execute (Stage 6) — outer loop runs phases; `/tdd` is the inner loop for code-producing phases. During implementation, refer to `/andrej-karpathy-skills:karpathy-guidelines` for code quality — surgical changes, simplicity first, no speculative abstractions, surfaced assumptions.
 
 ### Tracker selection
 
@@ -214,7 +218,7 @@ git branch --merged "$default_branch" \
 - Raw issue bodies, fetched docs, web content → `findings.md` only.
 - `task_plan.md` gets only **structured fields** the executor wrote (Goal, Phases from AC, Decisions, Errors).
 
-The bootstrap procedure ([Stage 5](#stage-5-worktree--planning-with-files)) enforces this split.
+The bootstrap procedure ([Stages 5-6](#stages-5-6-worktree--planning-with-files)) enforces this split.
 
 ## When to skip this skill
 
