@@ -104,6 +104,25 @@ Don't always start at stage 1 — jump to where the chain actually breaks.
 | Picked a `ready-for-agent` issue, ready to implement | 5 |
 | External issue filed by a user, needs classification | (parallel: `/triage`) |
 
+## When is it done?
+
+The mirror image of "Where to enter the chain" — four levels of "done", four signals:
+
+| Level | Done when | Recorded in |
+|-------|-----------|-------------|
+| Phase | TDD cycle green + logged | `task_plan.md` checkbox ticked |
+| Issue | All phases ticked, PR merged | tracker status (closed/merged) |
+| Feature | All issues from its PRD merged | `FEATURES.md` strike-through w/ shipped refs |
+| Project | (no native concept — judgment call) | — |
+
+A feature's completion is mechanical: walk from the PRD to its child issues (via the parent reference `/to-issues` writes), confirm all closed, then strike through the `FEATURES.md` line:
+
+```
+- [x] ~~user-can-reset-password~~ — ~~A user can reset...~~ (shipped: #42, #43, #44)
+```
+
+Software projects rarely "complete" — features keep getting added. If you need a hard milestone, layer on your tracker's mechanism (`gh milestone`, Linear cycles, release tags) and define "project complete" as that milestone closing. See [REFERENCE.md](REFERENCE.md#completion-signals) for per-tracker completion queries.
+
 ## Stage 5: worktree + planning-with-files
 
 The skill is **instructions-only** — there are no scripts. The agent performs each step manually, adapting to the team's issue tracker.

@@ -205,6 +205,43 @@ Don't run this from inside the worktree being removed — git rejects that.
 
 If you want the planning files as a post-mortem record, commit them on the branch BEFORE the teardown — the PR will carry them. Default is to discard.
 
+## Completion signals
+
+Four levels of "done"; the toolchain provides explicit semantics for three of them and deliberately stays out of the fourth.
+
+### Phase
+
+A phase in `task_plan.md` is done when its `/tdd` cycle lands green (or, for non-code phases, when the work is logged in `progress.md`). Recorded as a ticked checkbox in `task_plan.md`. Local to the worktree — dies at teardown.
+
+### Issue
+
+All phases in `task_plan.md` ticked **and** PR merged into the default branch. The merge event is the durable signal — `task_plan.md` itself is ephemeral. The tracker carries the persistent "closed/merged" status.
+
+### Feature
+
+Every issue produced by `/to-issues` on the feature's PRD has merged. Workflow:
+
+1. **Detect**: walk from the PRD to its child issues (via the parent reference each issue body carries) and confirm all closed.
+   - **GitHub**: `gh issue list --search "parent:<PRD#> state:open"` returns empty.
+   - **Local-markdown**: every file in `.scratch/<feature-slug>/issues/` has a terminal `Status:` (e.g., `closed`).
+   - **Linear / GitLab / Multica**: tracker-specific child-issue query.
+2. **Mark**: strike through the `FEATURES.md` line and append shipped refs:
+   ```
+   - [x] ~~user-can-reset-password~~ — ~~A user can reset a forgotten password~~ (shipped: #42, #43, #44)
+   ```
+3. **Never delete the line** (see [Stage 2 discipline](#discipline-strike-through-dont-delete)) — strike-through preserves institutional memory and prevents quiet scope drift.
+
+### Project
+
+No native concept. The toolchain has `FEATURES.md` (per-repo backlog) but deliberately no `PROJECT.md`. Reasons:
+
+- **Software projects rarely "complete".** Features keep getting added; the planned scope is always shifting.
+- **Project completion is policy, not a fact.** "Are we done?" depends on release cadence, business commitments, and milestone definitions — none of which the toolchain has visibility into.
+
+If you need a hard project-level signal, layer it on top of your tracker (GitHub milestones, Linear cycles, release tags) and define "project complete" as that milestone closing. The closest signal the toolchain itself provides is the state of `FEATURES.md` at a moment in time — zero `- [ ]` lines = every currently-enumerated feature has shipped — but this is a snapshot, not a guarantee. Adding a line resets it.
+
+The asymmetry is intentional: phase/issue/feature completion is a **fact** the toolchain can verify; project completion is a **judgment call** that lives outside.
+
 ## Gotchas
 
 - **Don't re-litigate PRD decisions in `task_plan.md`.** Architecture choices ("Postgres not Redis") are upstream. The `task_plan.md` Decisions table is only for *new* decisions made during execution (e.g., "extracted a CronExpression validator").
