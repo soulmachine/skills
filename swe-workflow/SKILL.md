@@ -5,9 +5,9 @@ description: Orchestrates the full five-stage flow from raw idea to shipped PR �
 
 # SWE Workflow
 
-The idiomatic software-engineer pipeline: clarify the idea → spec it → slice it → triage it → ship it. Five stages, each with a dedicated skill and a durable artifact that feeds the next.
+The idiomatic software-engineer workflow: clarify the idea → spec it → slice it → triage it → ship it. Five stages, each with a dedicated skill and a durable artifact that feeds the next.
 
-## The pipeline
+## The workflow
 
 ```
 ┌────────────────────── SPEC LAYER (mattpocock) ──────────────────────┐
@@ -17,9 +17,9 @@ The idiomatic software-engineer pipeline: clarify the idea → spec it → slice
 │              (resolve domain language; capture decisions)            │
 │                                                                      │
 │  2. What features does this break into?                              │
-│     Stub `.scratch/<feature-slug>/` per feature surfaced             │
-│              (product→engineering bridge — features fall out of      │
-│               /grill-with-docs; manual, no dedicated skill)          │
+│     /to-features ──► FEATURES.md                                     │
+│              (read CONTEXT.md + ADRs → user-facing features;         │
+│               strike through, don't delete, on ship)                 │
 │                                                                      │
 │  3. What does done look like?                                        │
 │     /to-prd ──► PRD (auto-labeled `ready-for-agent`)                 │
@@ -85,9 +85,9 @@ Operating maxim (Matt Pocock, after [surveying ~2000 AI coding course participan
 **Concrete commitments** derived from these principles:
 
 - **Instructions-only, no scripts.** Deterministic operations are documented as instructions the agent runs, not wrapped in scripts. Every script reintroduced would move the chain toward the opacity Matt's surveyed users rejected.
-- **Transparent markdown all the way down.** Five chain stages plus `/triage` as a parallel concern — every link is either a markdown skill or a manual filesystem action, none of them opaque. The direct test of the operating maxim above.
+- **Transparent markdown all the way down.** Five chain stages plus `/triage` as a parallel concern — every link is a markdown skill you can read, edit, or replace without touching code. None of them opaque. The direct test of the operating maxim above.
 
-**Engineering-side, by design.** The mattpocock toolchain assumes features come from product thinking (user needs, business goals) that lives outside this skill ecosystem. Stage 2 (`Stub .scratch/<feature-slug>/`) is the deliberate seam: features get *enumerated* here, but *discovered* elsewhere — in user interviews, product strategy, sales conversations, whatever your team uses. This toolchain has no opinion on that.
+**Engineering-side, by design.** The mattpocock toolchain assumes features come from product thinking (user needs, business goals) that lives outside this skill ecosystem. Stage 2 (`/to-features`) is the deliberate seam: features get *enumerated* here (read from `CONTEXT.md` + ADRs), but *discovered* elsewhere — in user interviews, product strategy, sales conversations, whatever your team uses. This toolchain has no opinion on that.
 
 See [REFERENCE.md](REFERENCE.md#how-this-differs-from-spec-kit-class-frameworks) for the comparison with spec-kit / BMAD / GSD.
 
@@ -177,6 +177,7 @@ git branch --merged "$default_branch" \
 2. **Issues are tracer bullets, not horizontal layers.** Each is a thin vertical slice (schema → API → UI → tests). "Backend issue" + "frontend issue" is a smell — re-slice.
 3. **Only `ready-for-agent` issues enter execution.** `/to-issues` auto-applies the label on chain-created issues; `/triage` applies it to external issues (user reports, etc.). Either way, stage 5 reads from the label, not the source.
 4. **One issue = one worktree = one `task_plan.md`.** Filesystem isolation for parallel AFK agents. No exceptions.
+5. **Strike through, don't delete.** When a feature ships, strike it through in `FEATURES.md` with a shipped reference — never delete. Preserves institutional memory; prevents quiet scope drift.
 
 ## Don't double-track
 

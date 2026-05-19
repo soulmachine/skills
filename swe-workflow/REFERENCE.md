@@ -15,25 +15,37 @@ If a `CONTEXT-MAP.md` exists at repo root, the project uses multiple bounded con
 
 **Skip this stage** when the terminology is settled and no new concepts are being introduced.
 
-## Stage 2: Feature enumeration — What features does this break into?
+## Stage 2: `/to-features` — What features does this break into?
 
-The **product→engineering bridge**. There's no dedicated skill — features fall out of the `/grill-with-docs` conversation as use cases ("a user logs in", "a user posts a photo", "a user follows another"). You enumerate them and create the filesystem layout downstream stages will fill in.
+The **product→engineering bridge**, formerly a manual filesystem action, now a dedicated skill. `/to-features` reads `CONTEXT.md` + `docs/adr/*.md`, then enumerates the user-facing features the domain implies, and writes them to `FEATURES.md` at the repo root.
 
-For each feature surfaced during grilling:
+See the [`/to-features` skill](../../to-features/SKILL.md) for the full process and file format.
+
+### Discipline: strike through, don't delete
+
+When a feature ships, mark its line in `FEATURES.md` with strikethrough + a shipped reference (issue number / PR). **Never delete the line.** Strikethrough preserves:
+
+- **Institutional memory** — what HAS shipped, not just what's pending
+- **Traceability** — link from `FEATURES.md` to the issue/PR that completed it
+- **Drift resistance** — you can't quietly drop a feature; dropping requires explicitly marking it out of scope (and writing the reason to `.out-of-scope/`)
+
+Format:
+- Pending: `- [ ] user-can-reset-password — A user can reset a forgotten password`
+- Shipped: `- [x] ~~user-can-reset-password~~ — ~~A user can reset a forgotten password~~ (shipped: #42)`
+
+### Optional: stub the filesystem alongside
+
+For local-markdown teams, you can also stub the per-feature directories that downstream stages will fill:
 
 ```bash
 mkdir -p .scratch/<feature-slug>/issues
 ```
 
-This follows mattpocock's local-markdown convention (see [`trackers/local-markdown.md`](../trackers/local-markdown.md)): `.scratch/<feature>/PRD.md` gets filled by `/to-prd` in Stage 3, and `.scratch/<feature>/issues/<NN>-<slug>.md` gets filled by `/to-issues` in Stage 4. The directories ARE the feature backlog — `ls .scratch/` shows what's pending; absence of `PRD.md` in a stub means "not yet specced."
+This follows mattpocock's `.scratch/<feature>/` layout (see [`trackers/local-markdown.md`](../trackers/local-markdown.md)). The directory layout becomes a parallel view of the feature backlog: `ls .scratch/` shows what's actively being worked; absence of `PRD.md` in a stub means "not yet specced."
 
-### Why no skill?
+### When to skip this stage
 
-Feature enumeration is a product decision (*what value do users get?*), distinct from `CONTEXT.md` (*what is the domain?*) and ADRs (*how do we build it?*). The skill toolchain handles every link except this product→engineering handoff, which you do by hand (or via a separate product-side process not covered here).
-
-### For non-local trackers
-
-When using GitHub/Linear/Multica/GitLab as the issue tracker, feature enumeration may happen entirely in the tracker (epic-per-feature, project-per-feature, etc.) — no filesystem stubs needed. Stage 3 (`/to-prd`) writes the PRD directly to the tracker.
+When using GitHub/Linear/Multica/GitLab and your team handles feature enumeration in those tools (epics, projects, etc.), skip `/to-features` — use the external source of truth and pass features directly to `/to-prd`. Stage 2 fills the seam for local-markdown teams (or solo devs) who'd rather keep feature tracking in the repo alongside the code.
 
 ## Stage 3: `/to-prd` — What does done look like?
 
