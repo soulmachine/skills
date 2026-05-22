@@ -28,6 +28,8 @@ The session interviews you about every branch of the design tree, one question a
 
 If a `CONTEXT-MAP.md` exists at repo root, the project uses multiple bounded contexts; each has its own `CONTEXT.md`.
 
+**Re-runnable until quiet — or until you call it.** `/grill-with-docs` isn't one-shot: run it repeatedly, each pass sharpening `CONTEXT.md` (and possibly adding ADRs). Two things end the loop — a run surfaces **no more interview questions** (terminology has stabilized), or **you abort the interview** (you've heard enough). Either way, what's already in `CONTEXT.md`/ADRs stands; aborting forfeits only the unasked questions, not captured decisions.
+
 **Skip this stage** when the terminology is settled and no new concepts are being introduced.
 
 ## Stage 2: `/to-features` — What features does this break into?
@@ -129,7 +131,12 @@ The skill is **instructions-only** — there are no scripts. The agent performs 
    - `task_plan.md` — Goal = title; Phases = AC checkboxes. Structured fields only.
    - `findings.md` — Raw issue body + AGENT-BRIEF pasted verbatim. Safe sink for external content.
    - `progress.md` — Initial session log entry.
-6. **Invoke `/planning-with-files:plan`** to refine the seeds, then `/planning-with-files:start` to execute.
+6. **Invoke `/planning-with-files:plan`** (Stage 5) with this prompt:
+
+   > /planning-with-files:plan Interview me about this issue, then write task_plan.md to implement it. The plan must use /tdd (tests first: red → green → refactor) for writing code and tests, and apply /karpathy-guidelines (surgical, simple changes) for code quality — and it must name both skills explicitly in task_plan.md so they're used when the plan is executed.
+
+   The interview refines the seeds into the real plan. `task_plan.md` is the **core artifact** — it's what `/planning-with-files:plan-goal` reads in Stage 6. The final clause matters: instructing the planner to **write `/tdd` and `/karpathy-guidelines` into `task_plan.md`** is what makes them survive into execution — `plan-goal` inherits "build test-first, keep changes surgical" from the plan itself rather than needing to be re-told.
+7. **Invoke `/planning-with-files:plan-goal`** (Stage 6) to execute — reads `task_plan.md` and drives each phase as a goal via Claude Code's goal command. Because the plan already calls for `/tdd` and `/karpathy-guidelines`, `plan-goal` just carries them out.
 
 The split enforces the **security boundary**: `task_plan.md` is re-injected by hooks every tool call, so it gets only structured fields; raw external content (issue body, fetched docs) goes to `findings.md` instead.
 
@@ -151,7 +158,7 @@ Per-tracker fetch commands and conventions live in [`trackers/<name>.md`](../tra
 
 ### Inner loop: `/tdd` within each code-producing phase
 
-`/planning-with-files:start` is the outer loop; `/tdd` is the inner loop. For each phase in `task_plan.md` that produces testable code:
+`/planning-with-files:plan-goal` is the outer loop; `/tdd` is the inner loop. For each phase in `task_plan.md` that produces testable code:
 
 1. Mark the phase `in_progress` in `task_plan.md`.
 2. Invoke `/tdd`:

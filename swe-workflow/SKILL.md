@@ -19,7 +19,8 @@ The idiomatic software-engineer workflow: clarify the idea → spec it → slice
 │                                                                      │
 │  1. What do I want?                                                  │
 │     /grill-with-docs ──► CONTEXT.md, ADRs                            │
-│              (resolve domain language; capture decisions)            │
+│              (resolve domain language; capture decisions —           │
+│               re-run until no questions remain or you abort)         │
 │                                                                      │
 │  2. What features does this break into?                              │
 │     /to-features ──► FEATURES.md                                     │
@@ -44,21 +45,20 @@ The idiomatic software-engineer workflow: clarify the idea → spec it → slice
                                   ▼
 ┌────────── EXECUTION LAYER (worktree + planning-with-files) ──────────┐
 │                                                                      │
-│  5. How do I plan each unit?                                         │
+│  5. How do I plan each issue?                                        │
 │     Fetch issue (per tracker) ──► worktree + branch + seed files     │
 │              (task_plan.md, findings.md, progress.md from AC)        │
 │                                                                      │
-│     /planning-with-files:plan ──► interview → refine the plan        │
-│              (sharpens phases, key questions, decisions to make)     │
+│     /planning-with-files:plan ──► interview → make the plan          │
+│              (prompt bakes in /karpathy-guidelines + /tdd —          │
+│               shapes phases, key questions, decisions to make)       │
 │                                                                      │
-│  6. How do I ship each unit?                                         │
-│     /planning-with-files:start ──► implement → commit                │
-│              (outer loop: phases, decisions, errors, findings)       │
-│              (apply karpathy-guidelines for code quality)            │
+│  6. How do I build each issue?                                       │
+│     /planning-with-files:plan-goal ──► read task_plan.md,            │
+│              work each sub-task in order → commit                    │
+│              (sub-tasks already name /tdd + /karpathy-guidelines)    │
 │                                                                      │
-│     /tdd ──► red → green → refactor (per code-producing phase)       │
-│              (inner loop: one failing test → one minimal fix)        │
-│                                                                      │
+│  7. How do I close out each issue?                                   │
 │     progress.md highlights ──► PR body / closing comment             │
 │              (the session log IS the PR narrative — don't rewrite)   │
 │                                                                      │
@@ -86,7 +86,7 @@ Operating maxim (Matt Pocock, after [surveying ~2000 AI coding course participan
 **Concrete commitments** derived from these principles:
 
 - **Instructions-only, no scripts.** Deterministic operations are documented as instructions the agent runs, not wrapped in scripts. Every script reintroduced would move the chain toward the opacity Matt's surveyed users rejected.
-- **Transparent markdown all the way down.** Six chain stages plus `/triage` as a parallel concern — every link is a markdown skill you can read, edit, or replace without touching code. None of them opaque. The direct test of the operating maxim above.
+- **Transparent markdown all the way down.** Seven chain stages plus `/triage` as a parallel concern — every link is a markdown skill or documented procedure you can read, edit, or replace without touching code. None of them opaque. The direct test of the operating maxim above.
 
 **Engineering-side, by design.** The mattpocock toolchain assumes features come from product thinking (user needs, business goals) that lives outside this skill ecosystem. Stage 2 (`/to-features`) is the deliberate seam: features get *enumerated* here (read from `CONTEXT.md` + ADRs), but *discovered* elsewhere — in user interviews, product strategy, sales conversations, whatever your team uses. This toolchain has no opinion on that.
 
@@ -105,6 +105,7 @@ Don't always start at stage 1 — jump to where the chain actually breaks.
 | PRD exists but is one mega-issue | 4 |
 | Picked a `ready-for-agent` issue, ready to plan | 5 |
 | `task_plan.md` refined, ready to implement | 6 |
+| Implementation committed, ready to open the PR + tear down | 7 |
 | External issue filed by a user, needs classification | (parallel: `/triage`) |
 
 ## When is it done?
@@ -126,7 +127,7 @@ A feature's completion is mechanical: walk from the PRD to its child issues (via
 
 Software projects rarely "complete" — features keep getting added. If you need a hard milestone, layer on your tracker's mechanism (`gh milestone`, Linear cycles, release tags) and define "project complete" as that milestone closing. See [REFERENCE.md](REFERENCE.md#completion-signals) for per-tracker completion queries.
 
-## Stages 5-6: worktree + planning-with-files
+## Stages 5-7: worktree + planning-with-files
 
 The skill is **instructions-only** — there are no scripts. The agent performs each step manually, adapting to the team's issue tracker.
 
@@ -147,8 +148,13 @@ The skill is **instructions-only** — there are no scripts. The agent performs 
    | `findings.md` | Raw issue body + AGENT-BRIEF pasted verbatim. Safe sink for external content. |
    | `progress.md` | Initial session log entry with bootstrap timestamp. |
 
-6. **Invoke `/planning-with-files:plan`** to refine seeds via interview (Stage 5). Sharpens phases, surfaces key questions, captures decisions to make.
-7. **Invoke `/planning-with-files:start`** to execute (Stage 6) — outer loop runs phases; `/tdd` is the inner loop for code-producing phases. During implementation, refer to `/andrej-karpathy-skills:karpathy-guidelines` for code quality — surgical changes, simplicity first, no speculative abstractions, surfaced assumptions.
+6. **Invoke `/planning-with-files:plan`** (Stage 5) with this prompt:
+
+   > /planning-with-files:plan Interview me about this issue, then write task_plan.md to implement it. The plan must use /tdd (tests first: red → green → refactor) for writing code and tests, and apply /karpathy-guidelines (surgical, simple changes) for code quality — and it must name both skills explicitly in task_plan.md so they're used when the plan is executed.
+
+   The interview refines the seeds — sharpens phases, surfaces key questions, captures decisions to make. `task_plan.md` is the **core artifact** Stage 6 reads; `findings.md` holds the raw issue body. The prompt's last clause is load-bearing: telling the planner to **name `/tdd` and `/karpathy-guidelines` inside `task_plan.md`** is what carries the methodology into Stage 6 — `plan-goal` re-reads the plan, sees the skills called out per phase, and applies them instead of being re-told.
+7. **Invoke `/planning-with-files:plan-goal`** to execute (Stage 6) — reads `task_plan.md`, drives each phase as a goal via Claude Code's goal command; outer loop runs phases; `/tdd` is the inner loop for code-producing phases. Since the Stage 5 prompt already named `/tdd` and `/andrej-karpathy-skills:karpathy-guidelines`, the plan calls for them — `plan-goal` carries them out: test-first, surgical changes, simplicity first, no speculative abstractions, surfaced assumptions.
+8. **Close out** (Stage 7) — open the PR with the body drawn from `progress.md` highlights (the session log *is* the narrative; don't rewrite it). After it merges, [tear down](#teardown-after-pr-merges) the worktree and branch.
 
 ### Tracker selection
 
@@ -168,7 +174,7 @@ Per-tracker fetch commands and conventions: [`trackers/<name>.md`](trackers/). T
 
 ### Inner loop: `/tdd` for code-producing phases
 
-`/planning-with-files:start` is the **outer loop** (phases, state, errors); `/tdd` is the **inner loop** (one failing test → one minimal fix). For each phase in `task_plan.md` that produces testable code:
+`/planning-with-files:plan-goal` is the **outer loop** (phases, state, errors); `/tdd` is the **inner loop** (one failing test → one minimal fix). For each phase in `task_plan.md` that produces testable code:
 
 ```
 Mark phase in_progress  →  /tdd (red → green → refactor)  →  log to progress.md  →  Mark phase complete
@@ -218,7 +224,7 @@ git branch --merged "$default_branch" \
 - Raw issue bodies, fetched docs, web content → `findings.md` only.
 - `task_plan.md` gets only **structured fields** the executor wrote (Goal, Phases from AC, Decisions, Errors).
 
-The bootstrap procedure ([Stages 5-6](#stages-5-6-worktree--planning-with-files)) enforces this split.
+The bootstrap procedure ([Stages 5-7](#stages-5-7-worktree--planning-with-files)) enforces this split.
 
 ## When to skip this skill
 
