@@ -53,6 +53,12 @@ The idiomatic software-engineer workflow: clarify the idea → spec it → slice
 │              (prompt bakes in /karpathy-guidelines + /tdd —          │
 │               shapes phases, key questions, decisions to make)       │
 │                                                                      │
+│                    step 5 writes ▼                                   │
+│                        ┌────────────────────┐                        │
+│                        │    task_plan.md    │                        │
+│                        └────────────────────┘                        │
+│                     step 6 reads ▼                                   │
+│                                                                      │
 │  6. How do I build each issue?                                       │
 │     /planning-with-files:plan-goal ──► read task_plan.md,            │
 │              work each sub-task in order → commit                    │
@@ -66,6 +72,8 @@ The idiomatic software-engineer workflow: clarify the idea → spec it → slice
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
 ```
+
+*File-based end to end — each step hands the next a markdown artifact: `CONTEXT.md`/ADRs → `FEATURES.md` → PRD → issues → `task_plan.md` → `progress.md`. The files are the interface between steps; nothing lives only in the agent's head.*
 
 ## Parallel concern: `/triage`
 
