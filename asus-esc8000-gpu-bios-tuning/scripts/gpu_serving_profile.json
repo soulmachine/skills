@@ -1,0 +1,39 @@
+{
+  "_comment": "Low-latency GPU-serving + VM-passthrough-ready BIOS profile for ASUS ESC8000-E12P. Token strings validated on BIOS 0804 / registry BiosAttributeRegistryS0317.8.4.0 (Xeon 6 / Granite Rapids). For a different BIOS version, prefer --from-host (copy live from a tuned server) since enum tokens can drift. Reset action has no GracefulRestart on this build.",
+  "validated_bios": "0804",
+  "validated_registry": "BiosAttributeRegistryS0317.8.4.0",
+  "tune": {
+    "PCIS034": "PCIS034Enabled",
+    "CRB2MC": "CRB2MCPerformance",
+    "CRB3JH": "CRB3JHPerformance",
+    "CRB4EB": "CRB4EBDisable",
+    "CRB3ID": "CRB3IDDisable",
+    "CRB5DU": "CRB5DUIOsensitive",
+    "AridLatencyOptimizedMode": "AridLatencyOptimizedModeEnabled",
+    "CRB3J4": "CRB3J4Disable",
+    "CRBAVX": "CRBAVXDisable",
+    "AridApmLastState": "AridApmLastStatePowerOn"
+  },
+  "baseline_verify": {
+    "PCIS006": "PCIS006Enabled",
+    "PCIS007": "PCIS007Enabled",
+    "CRBB4X": "CRBB4XEnable",
+    "CRB04Y": "CRB04YDisable"
+  },
+  "labels": {
+    "PCIS034": "Resize BAR Support",
+    "CRB2MC": "EPP profile",
+    "CRB3JH": "Energy-Perf Bias (EPB)",
+    "CRB4EB": "Energy-Efficient Turbo",
+    "CRB3ID": "C1->C1E Promotion",
+    "CRB5DU": "Workload Configuration",
+    "AridLatencyOptimizedMode": "Latency Optimized Mode",
+    "CRB3J4": "Sub-NUMA Clustering (SNC)",
+    "CRBAVX": "ASPM Global (IIO)",
+    "AridApmLastState": "Restore on AC Power Loss",
+    "PCIS006": "Above 4G Decoding",
+    "PCIS007": "SR-IOV Support",
+    "CRBB4X": "SR-IOV (CRB)",
+    "CRB04Y": "PCIe ACS Control"
+  }
+}
