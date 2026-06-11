@@ -1,11 +1,12 @@
 ---
-name: deploy-kimi-k26-blackwell
-description: Deploy and serve Moonshot Kimi-K2.6 (1T MoE, INT4/Marlin, 256K context, vision) on an Ubuntu server with 8× NVIDIA RTX PRO 6000 Blackwell (sm_120) GPUs using a uv venv + SGLang, exposing an OpenAI-compatible API. Use when deploying or serving Kimi-K2.6 (or similar INT4 compressed-tensors MoE models) on RTX PRO 6000 Blackwell / sm_120 hardware, installing SGLang in a uv venv, or troubleshooting sm_120 startup crashes — CUDA JIT "rsqrt exception specification" / glibc errors, a missing-`ninja` JIT build failure, FlashInfer CuTe-DSL MLIR ICE (llvm.mlir.global_dtors), or a slow/hung MoE weight load.
+name: deploy-kimi-k26-int4-on-rtx-pro-6000-blackwell
+description: Deploy and serve the official Moonshot Kimi-K2.6 INT4 QAT release (1T MoE, compressed-tensors INT4/Marlin, 256K context, vision) — not NVFP4 or other re-quantizations — on an Ubuntu server with 8× NVIDIA RTX PRO 6000 Blackwell Server Edition (sm_120) GPUs using a uv venv + SGLang, exposing an OpenAI-compatible API. Use when deploying or serving the INT4 QAT Kimi-K2.6 (or similar INT4 compressed-tensors MoE models) on RTX PRO 6000 Blackwell / sm_120 hardware, installing SGLang in a uv venv, or troubleshooting sm_120 startup crashes — CUDA JIT "rsqrt exception specification" / glibc errors, a missing-`ninja` JIT build failure, FlashInfer CuTe-DSL MLIR ICE (llvm.mlir.global_dtors), or a slow/hung MoE weight load.
 ---
 
-# Deploy Kimi-K2.6 on 8× RTX PRO 6000 Blackwell (sm_120)
+# Deploy Kimi-K2.6 (INT4 QAT) on 8× RTX PRO 6000 Blackwell (sm_120)
 
-Serve **Kimi-K2.6** (1T MoE; native INT4/compressed-tensors → **Marlin** path; MLA; 256K; MoonViT
+Serve **[Kimi-K2.6](https://huggingface.co/moonshotai/Kimi-K2.6)** (the official **INT4 QAT** checkpoint —
+*not* NVFP4 or other re-quants; 1T MoE; compressed-tensors → **Marlin** path; MLA; 256K; MoonViT
 vision) natively in a **uv venv** with **SGLang**, OpenAI-compatible API on `:30000`, **TP=8**, all
 weights in VRAM. Verified on Ubuntu 26.04 / driver 580 / CUDA 13.1 / 8× 96 GB.
 
