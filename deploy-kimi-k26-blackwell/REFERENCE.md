@@ -56,6 +56,9 @@ launcher's env**, so the env var alone is insufficient. **Fix:** patch the defau
   can deadlock at 0 B/s (process alive). `HF_HUB_DISABLE_XET=1` or, most reliably, download missing files
   directly with parallel `curl` (`scripts/download.sh`). Verify file count/sizes vs `HfApi.get_paths_info`.
 - **`libtorchcodec`/`libavutil` errors** at startup are non-fatal (video codec only); image vision works.
+  They print as several full `Traceback` / `OSError: libavutil.so.* cannot open shared object file` blocks
+  (torchcodec probing FFmpeg 8→4 ABIs in turn) — alarming but harmless, so do **not** gate a readiness
+  watcher on bare `Traceback` (see the readiness note below).
 - **DeepGemm warning** (`scale_fmt not ue8m0 ... accuracy degradation`) is soft; outputs verified
   coherent. Revisit only if quality looks off.
 
@@ -63,11 +66,18 @@ launcher's env**, so the env var alone is insufficient. **Fix:** patch the defau
 - **Hung after weight load, high CPU, 0% GPU, no log:** usually the *slow MoE weight loader*, not a hang.
   Confirm: `sudo .venv/bin/py-spy dump --pid $(pgrep -f sglang::scheduler_TP0 | head -1)` → active threads
   in `_weight_loader_impl` = loading; stuck in an NCCL collective = real hang.
+- **Load time is ~15 min only on a cold cache.** A restart shortly after a stop loads in **~3 min** because
+  the 595 GB is still warm in the OS page cache — a fast load is *not* a sign it skipped loading. (Drops
+  back to ~15 min after a reboot or once the cache is evicted.)
 - **Iterate on JIT failures fast:** the failed kernel is cached under `~/.cache/tvm-ffi/...`; reproduce
   the `nvcc` compile there (seconds) instead of reloading 595 GB. Pre-warm before launch with `VENV=./.venv
   bash scripts/prewarm.sh` — builds & caches `gptq_marlin_repack` in ~7s and proves `ninja`+Fix 1 work.
 - **Watch readiness:** poll `/health` and `grep` the log for `ninja: build stopped|ICE 🧊|DSLRuntimeError
-  |Received sigquit|fired up and ready`.
+  |Received sigquit|fired up and ready`. Do **not** grep bare `Traceback` — torchcodec prints benign ones
+  during startup (see Other gotchas). The signature-proof condition: loop until the log shows `fired up and
+  ready` (success) **or** the launcher process dies (crash) — that catches every failure mode without
+  enumerating signatures: `while ! grep -q "fired up and ready" log; do kill -0 $LAUNCHER 2>/dev/null ||
+  { echo CRASHED; break; }; sleep 5; done`.
 
 ## Tuning & limits (Phase 4)
 - KV pool at `mem-fraction-static 0.85` ≈ **116K tokens** total → a single request can't reach 256K.
