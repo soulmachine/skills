@@ -1,0 +1,44 @@
+# systemd unit: Kimi-K2.6 served by the OFFICIAL SGLang image in Docker (engine variant of the
+# primary Docker path — same container pattern as the vLLM unit, SGLang engine + flags).
+# Wraps serve_docker_sglang.sh (foreground `docker run --rm`); journald via SyslogIdentifier.
+# Alternative production mode: `DETACH=1 serve_docker_sglang.sh` (-d --restart unless-stopped)
+# WITHOUT this unit — use one mechanism or the other, never both.
+# Install (as /etc/systemd/system/kimi-k26-int4.service):
+#   cp serve_docker_sglang.sh <WorkingDirectory>/serve_docker_sglang.sh   # decouple from skill dir
+#   sudo cp kimi-k26-int4-sglang-docker.service /etc/systemd/system/kimi-k26-int4.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now kimi-k26-int4
+#   journalctl -u kimi-k26-int4 -f      # or: docker logs -f kimi-k26-int4  (~10-15 min load
+#                                       #     -> "The server is fired up and ready to roll!")
+[Unit]
+Description=Kimi-K2.6 (SGLang-in-Docker TP=8, INT4/Marlin, 256K) OpenAI-compatible API server
+Documentation=https://docs.sglang.ai
+After=docker.service network-online.target nvidia-persistenced.service
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# >>> EDIT THIS BLOCK — site-specific values (shown: working example) <<<
+WorkingDirectory=/data/devops/kimi
+Environment=IMAGE=lmsysorg/sglang:v0.5.12.post1-cu130
+# serve_docker_sglang.sh resolves the checkpoint from the HF hub cache under HF_HOME (absolute
+# path — systemd does not expand ~). Or pin an explicit dir: Environment=MODEL_PATH=/path/to/ckpt
+Environment=HF_HOME=/data/huggingface
+Environment=PORT=30000
+ExecStart=/bin/bash /data/devops/kimi/serve_docker_sglang.sh
+# >>> end of site-specific block <<<
+
+# serve_docker_sglang.sh runs the container in the FOREGROUND (docker run --rm); the container
+# name in the three lines below must match its NAME.
+Environment=NAME=kimi-k26-int4
+ExecStartPre=-/usr/bin/docker rm -f kimi-k26-int4
+ExecStop=/usr/bin/docker stop -t 120 kimi-k26-int4
+# Type=simple -> "active" right after fork; the ~10-15 min weight load happens after.
+TimeoutStartSec=1800
+TimeoutStopSec=150
+Restart=on-failure
+RestartSec=10
+SyslogIdentifier=kimi-k26-int4
+
+[Install]
+WantedBy=multi-user.target

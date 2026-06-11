@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase-5: put Caddy in front of the SGLang server with a real Tailscale (Let's Encrypt) TLS cert
+# Phase-5: put Caddy in front of the model server (engine-agnostic) with a real Tailscale (Let's Encrypt) TLS cert
 # + Bearer API-key auth, and lock the upstream :30000 to loopback. Idempotent. Run as a sudoer.
 #
 #   bash setup_proxy.sh                                  # auto-detect MagicDNS name + port 30000
@@ -7,6 +7,8 @@
 #
 # Prereq: enable "HTTPS Certificates" in the Tailscale admin console (https://login.tailscale.com/admin/dns).
 # NB: Tailscale already encrypts transit (WireGuard); this TLS is app-layer for https:// clients.
+# No Tailscale? The cert steps here are Tailscale-specific — use a public DNS name and Caddy's
+# built-in ACME instead (drop the tls line + cert-renew units); bearer gate + firewall carry over.
 set -euo pipefail
 
 UPSTREAM_PORT="${UPSTREAM_PORT:-30000}"
@@ -67,7 +69,7 @@ EOF
 sudo chmod 755 /usr/local/sbin/kimi-fw.sh
 sudo tee /etc/systemd/system/kimi-fw.service >/dev/null <<EOF
 [Unit]
-Description=Lock SGLang upstream :${UPSTREAM_PORT} to loopback only
+Description=Lock model-server upstream :${UPSTREAM_PORT} to loopback only
 After=network-online.target tailscaled.service docker.service
 Wants=network-online.target
 [Service]

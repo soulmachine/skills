@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Smoke-test a running Kimi-K2.6 SGLang server: health, models, text, tool-call, vision.
+# Smoke-test a running Kimi-K2.6 server (engine-agnostic — SGLang or vLLM): health, models,
+# text, tool-call, vision.
 #   PORT=30000 bash verify.sh
 set -uo pipefail
 PORT="${PORT:-30000}"; B="http://127.0.0.1:${PORT}"
