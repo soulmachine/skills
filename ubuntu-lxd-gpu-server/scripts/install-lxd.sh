@@ -91,10 +91,50 @@ if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != root ]; then
 fi
 
 # --- CDI spec from the HOST toolkit ---
-if [ "${CDI_REGEN:-0}" = 1 ] || [ ! -f /etc/cdi/nvidia.yaml ]; then
-  log "generating CDI spec -> /etc/cdi/nvidia.yaml"
-  mkdir -p /etc/cdi
-  nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml >/dev/null
+# Prefer the toolkit's own auto-refresh units (nvidia-cdi-refresh.{service,path}, shipped by
+# nvidia-container-toolkit-base >= 1.17): they regenerate the spec on every driver/toolkit change
+# AND at boot, so it never goes stale after an upgrade. They default to the tmpfs /var/run/cdi; we pin
+# them to the persistent /etc/cdi so LXD reads one stable location with no boot-time race. Older
+# toolkits have no such units -> fall back to generate-once + a boot unit (REFERENCE §5).
+CDI_SPEC=/etc/cdi/nvidia.yaml
+CDI_ENV=/etc/nvidia-container-toolkit/nvidia-cdi-refresh.env
+mkdir -p /etc/cdi
+if systemctl cat nvidia-cdi-refresh.service >/dev/null 2>&1; then
+  log "using packaged nvidia-cdi-refresh units (auto-regenerate on driver/toolkit upgrade + boot)"
+  # pin output to the persistent /etc/cdi via the toolkit's own override file (idempotent)
+  mkdir -p "$(dirname "$CDI_ENV")"
+  if ! grep -qxF "NVIDIA_CTK_CDI_OUTPUT_FILE_PATH=$CDI_SPEC" "$CDI_ENV" 2>/dev/null; then
+    sed -i '/^NVIDIA_CTK_CDI_OUTPUT_FILE_PATH=/d' "$CDI_ENV" 2>/dev/null || true
+    printf '\n# Pinned by ubuntu-lxd-gpu-server: persistent path LXD reads (survives reboot, no tmpfs race).\nNVIDIA_CTK_CDI_OUTPUT_FILE_PATH=%s\n' "$CDI_SPEC" >> "$CDI_ENV"
+  fi
+  systemctl enable nvidia-cdi-refresh.path nvidia-cdi-refresh.service >/dev/null 2>&1 || true
+  systemctl start nvidia-cdi-refresh.service >/dev/null 2>&1 || true        # regenerate now -> /etc/cdi
+  rm -f /var/run/cdi/nvidia.yaml /run/cdi/nvidia.yaml 2>/dev/null || true    # drop stale tmpfs spec (avoids duplicate-device conflict)
+  [ -f "$CDI_SPEC" ] || nvidia-ctk cdi generate --output="$CDI_SPEC" >/dev/null
+else
+  if [ "${CDI_REGEN:-0}" = 1 ] || [ ! -f "$CDI_SPEC" ]; then
+    log "generating CDI spec -> $CDI_SPEC (toolkit ships no auto-refresh units)"
+    nvidia-ctk cdi generate --output="$CDI_SPEC" >/dev/null
+  fi
+  # boot-time regen so a driver upgrade can't leave a stale spec. Distinct unit name so a later toolkit
+  # upgrade that DOES ship nvidia-cdi-refresh.* never collides with this hand-rolled unit.
+  log "installing boot-time CDI refresh unit (lxd-nvidia-cdi-refresh.service)"
+  cat >/etc/systemd/system/lxd-nvidia-cdi-refresh.service <<UNIT
+[Unit]
+Description=Regenerate NVIDIA CDI spec for LXD (fallback; toolkit ships no nvidia-cdi-refresh units)
+After=local-fs.target
+Before=snap.lxd.daemon.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/mkdir -p /etc/cdi
+ExecStart=$(command -v nvidia-ctk) cdi generate --output=$CDI_SPEC
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable lxd-nvidia-cdi-refresh.service >/dev/null 2>&1 || true
 fi
 nvidia-ctk cdi list 2>/dev/null | sed 's/^/  /' || true
 

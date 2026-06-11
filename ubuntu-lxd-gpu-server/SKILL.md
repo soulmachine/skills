@@ -1,6 +1,6 @@
 ---
 name: ubuntu-lxd-gpu-server
-description: Install LXD on an Ubuntu server and pass all NVIDIA GPUs into LXD system containers via CDI — install snapd+LXD (snap), run `lxd init` with a ZFS or dir storage pool, generate a host CDI spec with nvidia-ctk, and grant every GPU to every instance through the default profile, then verify nvidia-smi inside a container. Use when asked to install or set up LXD/lxc on a GPU host, give LXD containers GPU access, do LXD NVIDIA GPU passthrough, share all GPUs across LXD instances, or when `nvidia.runtime=true` fails with "driver rpc error: timed out" (use CDI instead). Assumes the host NVIDIA driver + nvidia-container-toolkit are already installed (see ubuntu-nvidia-gpu-enablement).
+description: 'Install LXD on an Ubuntu server and pass all NVIDIA GPUs into LXD system containers via CDI — install snapd+LXD (snap), run `lxd init` with a ZFS or dir storage pool, set up a host CDI spec at /etc/cdi and wire the nvidia-container-toolkit auto-refresh units so it stays fresh across driver upgrades, and grant every GPU to every instance through the default profile, then verify nvidia-smi inside a container. Use when asked to install or set up LXD/lxc on a GPU host, give LXD containers GPU access, do LXD NVIDIA GPU passthrough, share all GPUs across LXD instances, when `nvidia.runtime=true` fails with "driver rpc error: timed out" (use CDI instead), or when LXD GPU containers break after a host driver upgrade (stale or duplicate CDI spec). Assumes the host NVIDIA driver + nvidia-container-toolkit are already installed (see ubuntu-nvidia-gpu-enablement).'
 ---
 
 # Ubuntu LXD GPU Server
@@ -37,10 +37,11 @@ bash scripts/verify-gpu.sh
    so this session, call `lxc`/`lxd` by absolute path (`sudo /snap/bin/lxc …`).
 2. **`lxd init`** (preseed): one storage pool + `lxdbr0` NAT bridge. ZFS source `<pool>/lxd` puts rootfs on your
    chosen pool; `dir` is filesystem-agnostic. Full preseed + backends in REFERENCE §2.
-3. **Generate the CDI spec** with the *host* toolkit (declares each GPU + an `all` device):
-   ```bash
-   sudo mkdir -p /etc/cdi && sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
-   ```
+3. **CDI spec at `/etc/cdi/nvidia.yaml`** (declares each GPU + an `all` device). If the host toolkit ships
+   `nvidia-cdi-refresh.{path,service}` (≥1.17), the script pins them to `/etc/cdi` — they default to the tmpfs
+   `/var/run/cdi` — so they auto-refresh the spec on every driver/toolkit upgrade *and* at boot; an older toolkit
+   instead gets a one-off spec + a `lxd-nvidia-cdi-refresh.service` boot unit. Either way LXD reads one persistent
+   spec and there's nothing to do on driver upgrades. (Why, and the don't-keep-two-copies gotcha: REFERENCE §5.)
 4. **Grant all GPUs to all instances** via the default profile:
    ```bash
    sudo /snap/bin/lxc profile device add default gpu0 gpu gputype=physical id=nvidia.com/gpu=all
@@ -60,9 +61,14 @@ sudo /snap/bin/lxc delete -f g1
 
 ## Maintenance
 
-⚠️ The CDI spec hardcodes the running driver's library paths. **Regenerate after every host driver upgrade**
-(`sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`) or GPU containers break. REFERENCE §5 has a
-boot-time systemd unit that does this automatically.
+The CDI spec hardcodes the running driver's library paths, so it must be regenerated after every host driver
+upgrade or GPU containers break with a missing-library / NVML version-mismatch error. **The install script makes
+this automatic:** on a modern toolkit it pins the packaged `nvidia-cdi-refresh.{path,service}` to `/etc/cdi` (they
+fire on any driver/toolkit change and at boot); on an older toolkit it installs a `lxd-nvidia-cdi-refresh.service`
+boot unit. **So normally there's no manual step on a driver upgrade.** Force a refresh by hand with
+`sudo systemctl start nvidia-cdi-refresh.service` (or `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`).
+⚠️ Don't *also* leave a spec in `/var/run/cdi` — LXD scans both dirs, and two specs collide as duplicate devices
+(REFERENCE §5).
 
 Deep dives — storage backends & preseed, GPU selection, CDI-vs-runtime diagnosis, moving the pool between ZFS
 pools, troubleshooting, uninstall — in [REFERENCE.md](REFERENCE.md).

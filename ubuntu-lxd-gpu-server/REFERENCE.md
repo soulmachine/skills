@@ -116,13 +116,37 @@ sudo /snap/bin/lxc config set <name> raw.lxc 'lxc.log.level=debug'              
 ## 5. Maintenance — keep the CDI spec fresh
 
 The spec at `/etc/cdi/nvidia.yaml` pins exact versioned library paths (e.g. `libnvidia-ml.so.<driver-ver>`).
-After a host driver upgrade those paths change and containers fail with missing-library errors until you
-regenerate. A driver upgrade needs a reboot anyway (new kernel module), so **regenerate at boot**:
+After a host driver upgrade those paths change and containers fail with missing-library / NVML version-mismatch
+errors until the spec is regenerated. Two ways to keep it fresh — `install-lxd.sh` picks automatically:
+
+**Modern toolkit (`nvidia-container-toolkit` ≥ 1.17) — use its own units (preferred).** The package ships
+`nvidia-cdi-refresh.service` plus a `nvidia-cdi-refresh.path` that watches `/usr/bin/nvidia-ctk` and
+`/lib/modules/$(uname -r)/modules.dep[.bin]`, so the spec regenerates on **every driver/toolkit install or
+upgrade** (event-driven, before you even reboot) **and** at boot (the service is `WantedBy=multi-user.target`).
+This is strictly better than a hand-rolled boot unit — don't add one. **One catch:** the service writes to the
+**tmpfs `/var/run/cdi/nvidia.yaml`** by default, while this skill uses the persistent `/etc/cdi/nvidia.yaml`. Pin
+it via the toolkit's own override file so there's a single, persistent source of truth:
+
+```bash
+echo 'NVIDIA_CTK_CDI_OUTPUT_FILE_PATH=/etc/cdi/nvidia.yaml' | sudo tee -a /etc/nvidia-container-toolkit/nvidia-cdi-refresh.env
+sudo systemctl enable --now nvidia-cdi-refresh.path
+sudo systemctl start nvidia-cdi-refresh.service           # regenerate now -> /etc/cdi
+sudo rm -f /var/run/cdi/nvidia.yaml                       # remove the old tmpfs copy (see warning)
+```
+
+⚠️ **Never leave a spec in both `/etc/cdi` and `/var/run/cdi`.** LXD (CDI) scans *both* directories; after a
+driver upgrade one is fresh and the other stale, and both define `nvidia.com/gpu=*`, so the CDI library hits
+**duplicate / conflicting device names** and GPU passthrough breaks. Pin to one location and delete the other.
+Persistent `/etc/cdi` is preferred for LXD: it survives reboot, so there's no tmpfs regeneration race before
+autostart GPU containers come up.
+
+**Older toolkit (no `nvidia-cdi-refresh` units) — install a boot unit.** The script writes this fallback. Note
+the **distinct name** — so a future toolkit upgrade that ships `nvidia-cdi-refresh.*` can't collide with it:
 
 ```ini
-# /etc/systemd/system/nvidia-cdi-refresh.service
+# /etc/systemd/system/lxd-nvidia-cdi-refresh.service
 [Unit]
-Description=Regenerate NVIDIA CDI spec for LXD
+Description=Regenerate NVIDIA CDI spec for LXD (fallback; toolkit ships no nvidia-cdi-refresh units)
 After=local-fs.target
 Before=snap.lxd.daemon.service
 
@@ -135,7 +159,7 @@ ExecStart=/usr/bin/nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
 WantedBy=multi-user.target
 ```
 ```bash
-sudo systemctl enable nvidia-cdi-refresh.service
+sudo systemctl enable lxd-nvidia-cdi-refresh.service
 ```
 Alternative: an APT hook (`/etc/apt/apt.conf.d/99-nvidia-cdi`) running the same command `DPkg::Post-Invoke`.
 Either way, re-run is safe and idempotent.
@@ -169,7 +193,8 @@ new pool name, since pools can't be renamed).
 | `lxc` needs sudo even after `usermod -aG lxd` | Group membership needs a fresh login/session. |
 | Container start OK but `nvidia-smi: command not found` inside | CDI spec missing/stale, or device not attached. `nvidia-ctk cdi list`; regenerate (§5); check `lxc config device show <inst>`. |
 | `Failed to initialize NVML: Driver/library version mismatch` | Host driver upgraded, spec stale → regenerate the CDI spec (§5). |
-| Containers see 0 GPUs after reboot/upgrade | Same — regenerate; enable the boot unit (§5). |
+| Containers see 0 GPUs after reboot/upgrade | Stale spec — regenerate, and make sure auto-refresh is wired (§5). |
+| Passthrough breaks after a driver upgrade; duplicate / conflicting CDI device error | A spec exists in **both** `/etc/cdi` and `/var/run/cdi` and they diverged. Keep one location, delete the other, pin the refresh service to it (§5). |
 | `lxd init` fails: source dataset busy/exists | Pick an unused dataset name (`zfs:<pool>/lxd`), or `dir`. |
 | Bridge subnet clashes with LAN/VPN | `lxc network set lxdbr0 ipv4.address 10.x.y.1/24` (and re-NAT). |
 
@@ -179,5 +204,8 @@ new pool name, since pools can't be renamed).
 sudo /snap/bin/lxc list -c n -f csv | xargs -r -n1 sudo /snap/bin/lxc delete -f
 sudo snap remove lxd            # add --purge to drop all data
 # ZFS-backed pool dataset (if any) is removed with the snap data; verify: zfs list | grep lxd
-sudo rm -f /etc/cdi/nvidia.yaml /etc/systemd/system/nvidia-cdi-refresh.service
+sudo rm -f /etc/cdi/nvidia.yaml /etc/systemd/system/lxd-nvidia-cdi-refresh.service   # our fallback unit, if installed
+# if you pinned the packaged refresh service to /etc/cdi (§5), undo it (leave the packaged
+# nvidia-cdi-refresh.{service,path} alone — they belong to nvidia-container-toolkit):
+sudo sed -i '/^NVIDIA_CTK_CDI_OUTPUT_FILE_PATH=/d' /etc/nvidia-container-toolkit/nvidia-cdi-refresh.env 2>/dev/null || true
 ```
