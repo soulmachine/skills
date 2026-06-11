@@ -22,12 +22,27 @@ curl -sS -m 120 "$B/v1/chat/completions" -H 'Content-Type: application/json' -d 
  "tool_choice":"auto","max_tokens":300}' \
  | py -c 'import sys,json;tc=json.load(sys.stdin)["choices"][0]["message"].get("tool_calls");print("  ",tc and tc[0]["function"])'
 
-echo "== 5. vision (gating check) =="
-IMG="${IMG_URL:-https://upload.wikimedia.org/wikipedia/commons/3/3a/Cat03.jpg}"
-curl -sS -m 180 "$B/v1/chat/completions" -H 'Content-Type: application/json' -d "{
- \"model\":\"kimi-k2.6\",\"messages\":[{\"role\":\"user\",\"content\":[
-   {\"type\":\"text\",\"text\":\"What animal is in this image? One word.\"},
-   {\"type\":\"image_url\",\"image_url\":{\"url\":\"$IMG\"}}]}],\"max_tokens\":200}" \
- | py -c 'import sys,json
-try: print("  ",json.load(sys.stdin)["choices"][0]["message"]["content"])
-except Exception as e: print("  VISION FAILED:",e,"(fall back to vLLM --mm-encoder-tp-mode data)")'
+echo "== 5. vision (base64 data URL) =="
+# NB: send images as a base64 data URL. Server-side image_url URL-fetch uses a default `requests`
+# User-Agent that some hosts (e.g. Wikimedia) 403 — that's a fixture issue, NOT a MoonViT failure.
+# So fetch CLIENT-side with a real UA, then inline as base64 (the server never fetches the URL).
+IMG_URL="${IMG_URL:-https://upload.wikimedia.org/wikipedia/commons/3/3a/Cat03.jpg}"
+IMG_FILE="${IMG_FILE:-/tmp/kimi_verify_img.jpg}"
+curl -sS -A "Mozilla/5.0 (X11; Linux x86_64) kimi-verify/1.0" -m 60 -o "$IMG_FILE" "$IMG_URL" \
+  || echo "  (client-side image fetch failed; set IMG_URL or pre-place IMG_FILE)"
+py - "$B" "$IMG_FILE" <<'PYEOF'
+import sys, base64, json, urllib.request
+B, img = sys.argv[1], sys.argv[2]
+try:
+    url = "data:image/jpeg;base64," + base64.b64encode(open(img, "rb").read()).decode()
+    payload = {"model": "kimi-k2.6", "messages": [{"role": "user", "content": [
+        {"type": "text", "text": "What animal is in this image? One word."},
+        {"type": "image_url", "image_url": {"url": url}}]}],
+        "chat_template_kwargs": {"thinking": False}, "max_tokens": 200}
+    req = urllib.request.Request(B + "/v1/chat/completions", data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"})
+    out = json.load(urllib.request.urlopen(req, timeout=180))
+    print("  ", out["choices"][0]["message"]["content"])
+except Exception as e:
+    print("  VISION FAILED:", e, "(MoonViT works on sm_120; if truly broken, vLLM --mm-encoder-tp-mode data)")
+PYEOF

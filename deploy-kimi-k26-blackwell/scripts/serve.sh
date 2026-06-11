@@ -8,6 +8,12 @@ VENV="${VENV:-./.venv}"
 MODEL_PATH="${MODEL_PATH:-/data/models/Kimi-K2.6}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-30000}"
+CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+
+# JIT build tools must resolve at runtime: venv/bin has ninja (+python), CUDA bin has nvcc.
+# Without `ninja` on PATH, the INT4 Marlin kernel JIT-build dies (FileNotFoundError: 'ninja'
+# -> sigquit) AFTER the ~15-min weight load. Keeping them on PATH makes the launch self-contained.
+export PATH="$VENV/bin:$CUDA_HOME/bin:$PATH"
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"

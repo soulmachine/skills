@@ -40,6 +40,12 @@ launcher's env**, so the env var alone is insufficient. **Fix:** patch the defau
 "0") == "1"` → default `"1"` (`!= "0"`). **Re-apply after any flashinfer reinstall/upgrade.**
 
 ## Other gotchas
+- **`ninja` required for the INT4 Marlin JIT** (hard prerequisite, not optional). SGLang JIT-builds the
+  `gptq_marlin_repack` kernel via `tvm_ffi`→`ninja` inside `process_weights_after_loading` — *after* the
+  ~15-min load. No `ninja` on PATH ⇒ `FileNotFoundError: [Errno 2] No such file or directory: 'ninja'`
+  → `Received sigquit from a child process`. Fix: `uv pip install ninja` into the venv, and keep venv/bin
+  (plus CUDA bin for `nvcc`) on PATH — `serve.sh` and `scripts/kimi-k26.service` already do. Pre-warm it
+  in ~7s before the real launch with `scripts/prewarm.sh` (also proves Fix 1 compiles).
 - **Install lean.** `sglang[all]` drags in fragile diffusion deps (opencv/modelopt/st_attn) and fails
   to resolve; base `sglang` is the full serving runtime. `--prerelease=allow` is needed (sglang depends
   on the `flash-attn-4` beta — a thin loader wheel, not a source build).
@@ -58,7 +64,8 @@ launcher's env**, so the env var alone is insufficient. **Fix:** patch the defau
   Confirm: `sudo .venv/bin/py-spy dump --pid $(pgrep -f sglang::scheduler_TP0 | head -1)` → active threads
   in `_weight_loader_impl` = loading; stuck in an NCCL collective = real hang.
 - **Iterate on JIT failures fast:** the failed kernel is cached under `~/.cache/tvm-ffi/...`; reproduce
-  the `nvcc` compile there (seconds) instead of reloading 595 GB. Pre-build with `ninja` to warm the cache.
+  the `nvcc` compile there (seconds) instead of reloading 595 GB. Pre-warm before launch with `VENV=./.venv
+  bash scripts/prewarm.sh` — builds & caches `gptq_marlin_repack` in ~7s and proves `ninja`+Fix 1 work.
 - **Watch readiness:** poll `/health` and `grep` the log for `ninja: build stopped|ICE 🧊|DSLRuntimeError
   |Received sigquit|fired up and ready`.
 
@@ -69,8 +76,21 @@ launcher's env**, so the env var alone is insufficient. **Fix:** patch the defau
 - No NVLink (PCIe only): GPU pairs share a switch (PIX); GPUs 0-3 vs 4-7 are cross-NUMA (`nvidia-smi topo -m`).
 
 ## Productionization (Phase 5)
-- systemd unit (Type=simple, `TimeoutStartSec=600`, `Restart=on-failure`, `LimitMEMLOCK=infinity`).
-- Reverse proxy (Caddy/nginx) for **TLS + API-key** — don't expose `:30000` directly.
+- systemd unit: use the verified **`scripts/kimi-k26.service`** (Type=simple, `TimeoutStartSec=1200`,
+  `Restart=on-failure`, `LimitMEMLOCK=infinity`, `KillSignal=SIGINT` + default control-group KillMode so
+  all 8 TP workers are reaped on stop). **Critical:** its `Environment=PATH=` MUST include venv/bin
+  (`ninja`) and CUDA bin (`nvcc`), and `HOME=` must point at the user whose `~/.cache/tvm-ffi` holds the
+  warm kernel — otherwise it fails the Marlin JIT build exactly like a fresh host. Cutover from a manual
+  run: stop it first (SIGINT the process group; confirm GPU mem→0 and `:30000` free) before `systemctl
+  start`, else the new instance clashes on the port / OOMs on already-resident weights.
+- Reverse proxy + auth: **`scripts/setup_proxy.sh`** (idempotent) installs Caddy in front with a real
+  **Tailscale Let's Encrypt** cert + **Bearer API-key** gate and locks `:30000` to loopback via iptables.
+  Prereq: enable "HTTPS Certificates" in the Tailscale admin console (DNS) so `tailscale cert` works — the
+  script auto-detects the node's MagicDNS name. Key lives in `/etc/caddy/kimi.env`; clients use
+  `https://<magicdns>/v1` with `Authorization: Bearer <key>`. A weekly `kimi-cert-renew.timer` refreshes
+  the ~90-day cert. (Tailscale already encrypts transit via WireGuard, so this TLS is app-layer for
+  https:// clients. The loopback firewall re-applies at boot; the fully robust alternative is binding
+  SGLang to `127.0.0.1` via `HOST=` in the systemd unit.)
 - `dcgm-exporter` + Prometheus + Grafana; scrape sglang `/metrics` (queue depth, KV utilization, tok/s).
 
 ## Verification commands
@@ -82,5 +102,6 @@ curl :30000/v1/chat/completions -H 'Content-Type: application/json' -d \
    "chat_template_kwargs":{"thinking":false},"max_tokens":64}'
 ```
 Also exercise a tool call (expect `tool_calls` with `kimi_k2` parser) and an `image_url` content part
-(MoonViT works on SGLang/sm_120 — no vLLM fallback needed). If vision *were* broken, vLLM
+**sent as a base64 data URL** — server-side URL-fetch uses a default `requests` UA that some hosts (e.g.
+Wikimedia) 403, which looks like a vision failure but is just the fixture. MoonViT works on SGLang/sm_120. If vision *were* broken, vLLM
 (`--mm-encoder-tp-mode data`) is the documented fallback.

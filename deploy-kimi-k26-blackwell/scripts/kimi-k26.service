@@ -1,0 +1,48 @@
+# systemd unit for the Kimi-K2.6 SGLang server (Phase 5 productionization). VERIFIED working.
+# Install:
+#   cp serve.sh <WorkingDirectory>/serve.sh          # decouple from ~/.claude/skills
+#   sudo cp kimi-k26.service /etc/systemd/system/     # after editing the paths/User below
+#   sudo systemctl daemon-reload && sudo systemctl enable --now kimi-k26
+#   journalctl -u kimi-k26 -f                         # watch the ~15-min load -> "fired up and ready"
+[Unit]
+Description=Kimi-K2.6 (SGLang TP=8, INT4/Marlin, 256K) OpenAI-compatible API server
+Documentation=https://docs.sglang.ai
+After=network-online.target nvidia-persistenced.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# >>> EDIT: user + the three paths to match your install <<<
+User=nickel
+Group=nickel
+WorkingDirectory=/data/devops/kimi
+Environment=VENV=/data/devops/kimi/.venv
+Environment=MODEL_PATH=/data/models/Kimi-K2.6
+ExecStart=/bin/bash /data/devops/kimi/serve.sh
+
+# CRITICAL: a systemd unit gets a minimal env. PATH MUST include venv/bin (ninja + python) and
+# CUDA bin (nvcc), or the INT4 Marlin kernel JIT-build fails exactly like a fresh host would.
+# HOME must point at the user whose ~/.cache/tvm-ffi holds the (pre-)warmed kernel.
+Environment=HOME=/home/nickel
+Environment=CUDA_HOME=/usr/local/cuda
+Environment=PATH=/data/devops/kimi/.venv/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOST=0.0.0.0
+Environment=PORT=30000
+Environment=HF_HUB_OFFLINE=1
+Environment=TRANSFORMERS_OFFLINE=1
+Environment=FLASHINFER_USE_CUDA_NORM=1
+
+# SIGINT == Ctrl-C (clean SGLang shutdown); default KillMode=control-group reaps all 8 TP workers.
+KillSignal=SIGINT
+TimeoutStopSec=120
+# Type=simple -> "active" right after fork; the ~5-15 min weight load happens after. Generous budget.
+TimeoutStartSec=1200
+Restart=on-failure
+RestartSec=10
+# pinned memory for NCCL; plenty of fds for TP shards + connections
+LimitMEMLOCK=infinity
+LimitNOFILE=1048576
+SyslogIdentifier=kimi-k26
+
+[Install]
+WantedBy=multi-user.target
