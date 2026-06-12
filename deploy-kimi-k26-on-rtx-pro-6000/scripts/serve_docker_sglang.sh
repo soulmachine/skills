@@ -34,7 +34,13 @@ else
   [ -f "$KIMI_CACHE/refs/main" ] || { echo "$MODEL_REPO not in HF cache ($KIMI_CACHE). Run: bash scripts/download.sh $MODEL_REPO <commit-sha>" >&2; exit 1; }
   MODEL_MOUNT=(-v "$KIMI_CACHE:/models/repo:ro"); MODEL_ARG="/models/repo/snapshots/$(cat "$KIMI_CACHE/refs/main")"
 fi
-HOST="${HOST:-0.0.0.0}"
+# Bind address: the LAN IP only (NOT 0.0.0.0) — under --network host this is the structural access
+# policy: the raw port listens on the trusted LAN but has NO listener on the tailnet IP or loopback
+# (connection refused), so the tailnet must go through the authenticated Caddy :443. Fail-safe to
+# loopback if the LAN IP can't be detected (secure + visibly broken; never silently 0.0.0.0).
+# Override with HOST=<ip>. Caddy and verify.sh therefore target this LAN IP, not 127.0.0.1.
+LAN_IP="$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || true)"
+HOST="${HOST:-${LAN_IP:-127.0.0.1}}"
 PORT="${PORT:-30000}"
 TP="${TP:-8}"
 MEM_FRACTION_STATIC="${MEM_FRACTION_STATIC:-0.85}"
@@ -49,6 +55,7 @@ mkdir -p "$JIT_CACHE"
 # GPU access: CDI by default (spec at /etc/cdi/nvidia.yaml, kept fresh by nvidia-cdi-refresh.*;
 # plain runc, no legacy nvidia runtime hook). Legacy alternative: GPU_ARGS="--gpus all"
 GPU_ARGS="${GPU_ARGS:---device nvidia.com/gpu=all}"
+
 
 RUN_MODE=(--rm)
 if [ "${DETACH:-0}" = "1" ]; then RUN_MODE=(-d --restart unless-stopped); fi
@@ -66,8 +73,11 @@ if [ "${WAIT_GPU_FREE:-1}" = "1" ] && command -v nvidia-smi >/dev/null 2>&1; the
   [ "${busy:-0}" -ne 0 ] && echo ">> WARN: $busy GPU(s) still busy — launch may OOM (REFERENCE: 'cutover / leaked GPU memory')." >&2
 fi
 
-# --ipc=host: NCCL shm for TP=8 (Docker's default 64MB /dev/shm breaks it; alt: --shm-size=32g)
-# --network host: binds the host stack — loopback firewall + reverse proxy work exactly like native
+# --ipc=host: NCCL shm for TP=8 (Docker's default 64MB /dev/shm breaks it; alt: --shm-size=32g).
+# --network host: performance — NCCL's GPU-to-GPU transport. IB/RoCE GPUDirect RDMA needs the host
+#   network stack + direct access to the RDMA NICs, which a Docker bridge breaks/bypasses (and any
+#   multi-node TP needs it too). The server binds $HOST (the LAN IP, above), so the tailnet/loopback
+#   have no raw listener — that's the structural access policy, no host firewall. (Bench runs isolated.)
 # FLASHINFER_USE_CUDA_NORM=1: belt-and-suspenders vs the CuTe-DSL RMSNorm MLIR ICE on sm_120
 # shellcheck disable=SC2086  # GPU_ARGS intentionally word-splits
 exec docker run "${RUN_MODE[@]}" --name "$NAME" \

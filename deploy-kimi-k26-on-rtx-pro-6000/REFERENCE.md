@@ -39,8 +39,15 @@ Blackwell SE reference hardware**, vLLM elsewhere per the model card's primary g
 - **Why each container flag:**
   - `--ipc=host` — NCCL shared-memory transport between the 8 TP workers; Docker's default 64 MB
     `/dev/shm` breaks it (alternative: `--shm-size=32g`).
-  - `--network host` — binds the host stack directly, so the loopback-only firewall (`kimi-fw`) and
-    the Caddy reverse proxy see a plain local listener; no published-port iptables/NAT.
+  - `--network host` — **performance.** This is NCCL's GPU-to-GPU transport path: **IB/RoCE
+    GPUDirect RDMA needs the host network stack and direct access to the RDMA NICs, which a Docker
+    bridge breaks/bypasses** (and any multi-node TP needs it too). So the model server (the perf-
+    critical container) runs `--network host`. (On a PCIe-only box NCCL can fall back to P2P+shm and
+    a bridge happens to work, but host-net is the correct config for RDMA-capable GPU hosts and the
+    safe default.) The **bench client** is the opposite — just a load generator, so it runs in its
+    **own net namespace** (not host-net) and reaches the server over the published/host LAN IP.
+    Because the server is host-net, its raw port is controlled by the **bind address** (see "Access
+    model"): it binds the **LAN IP only**, so the tailnet/loopback have no raw listener — no firewall.
   - `-v $MODEL_PATH:/models/kimi:ro` — bind-mount the weights; **never** bake ~600 GB into an image
     (overlayfs read path + unshippable image).
   - `--ulimit memlock=-1 --ulimit nofile=1048576` — NCCL pinned memory + fds for shards/connections.
@@ -79,7 +86,8 @@ Blackwell SE reference hardware**, vLLM elsewhere per the model card's primary g
 - **Production.** One static unit `scripts/kimi-k26.service` (foreground `docker run --rm` wrapper,
   ordered after `docker.service`, `ExecStop=docker stop -t 120 kimi-k26`) driven by
   `/etc/kimi-k26.env` (`scripts/kimi-k26.env.example`) — the EnvironmentFile selects
-  `FRAMEWORK`/`QUANT`/`IMAGE`, and `ExecStart` is `serve_docker_${FRAMEWORK}.sh`. One 595 GB variant
+  `FRAMEWORK`/`QUANT`/`IMAGE`, and `ExecStart` is `/usr/local/bin/serve_docker_${FRAMEWORK}.sh` (the launcher
+  installed on the **root disk**, not a `/data` mount; `WorkingDirectory=/var/lib/kimi-k26`). One 595 GB variant
   fills the 8-GPU pool, so the name stays `kimi-k26`; **switch quant/engine = edit the env + `systemctl
   restart kimi-k26`**. ⚠ Keep env values **bare** — systemd `EnvironmentFile` folds an inline `# comment`
   into the value (mangled `HF_HOME` → `LocalEntryNotFoundError`). Use the unit **or** `DETACH=1`
@@ -99,7 +107,8 @@ Blackwell SE reference hardware**, vLLM elsewhere per the model card's primary g
   the unit caps the loop at `StartLimitBurst=3` / 10 min so it can't leak indefinitely.
 - **Status.** **Both engines VERIFIED end-to-end 2026-06-11** on the reference host (verify.sh 5/5
   each, incl. tool-call + vision). SGLang-in-Docker is what the host runs (systemd, CDI, restart
-  cycle, fp8 KV adopted) and is faster at every measured concurrency (see baselines); vLLM-in-Docker verified at
+  cycle, fp8 KV adopted) and is faster at every measured concurrency (baselines: see the
+  `llm-inference-benchmark` skill); vLLM-in-Docker verified at
   `GPU_MEM_UTIL=0.95` + `MAX_MODEL_LEN=131072` (a 0.85/256K first start refuses — see flag map).
   Keep `verify.sh` as the go/no-go gate on first launch and after any image bump.
 
@@ -154,11 +163,11 @@ The entire FP4 question is the grouped MoE GEMM. Four sm_120 facts, each a wall 
 3. **MoE backend: CUDA 13 for native; Marlin is faster anyway.** `--moe-backend flashinfer_b12x` (native
    FP4 tensor cores, vLLM PR #40082) hard-errors on CUDA 12 ("b12x fused MoE requires CUDA 13"), so the
    image must be CUDA 13. It *does* dispatch FP4 (oracle log `Using 'FLASHINFER_B12X' NvFp4 MoE backend`,
-   no silent Marlin fallback — `auto` would silently pick Marlin, so name it explicitly). **But the A/B**
-   (TP=8, IN=1024/OUT=256, MAX_SEQS=16): marlin **57/264/359/369/368** out-tok/s @ c1/8/16/32/64 vs b12x
-   **49/248/320/320/328** — marlin **~12% faster** and more KV (309K vs 192K tok; b12x reserves ~3.2 GB/GPU
-   more workspace). The box is **PCIe-comm-bound at TP=8 (no NVLink)**, so the FP4 GEMM speedup never
-   reaches end-to-end. → default `--moe-backend marlin`; `flashinfer_b12x` only to exercise the tensor cores.
+   no silent Marlin fallback — `auto` would silently pick Marlin, so name it explicitly). **But the
+   measured A/B says Marlin wins every concurrency** (~12% overall, peak +24%; b12x also reserves more
+   workspace → less KV): the box is **PCIe-comm-bound at TP=8 (no NVLink)**, so the FP4 GEMM speedup
+   never reaches end-to-end. → default `--moe-backend marlin`; `flashinfer_b12x` only to exercise the
+   tensor cores. (Full A/B table + reproduction command: the `llm-inference-benchmark` skill.)
 4. **Offline remote-code de-symlink.** With `HF_HUB_OFFLINE=1` vLLM passes the snapshot dir; transformers
    ≥5.10 `resolve()`s the custom tokenizer into `blobs/` (hash-named) and can't find its relative imports
    → `FileNotFoundError …/blobs/tool_declaration_ts.py`. `prep_remote_code.sh` de-references the snapshot
@@ -167,7 +176,8 @@ The entire FP4 question is the grouped MoE GEMM. Four sm_120 facts, each a wall 
 Extra vLLM flags `serve_docker_vllm.sh` adds for `QUANT=nvfp4`: `--quantization modelopt_fp4
 --kv-cache-dtype fp8 --disable-custom-all-reduce --moe-backend ${MOE_BACKEND:-marlin}` (GPU_MEM_UTIL 0.90).
 On **datacenter Blackwell (sm_100/B200)** none of 1–2 apply and native FP4 (`flashinfer_cutedsl`) is tuned —
-prefer NVFP4 there. Verify the chosen MoE backend in the log: `Using '<BACKEND>' NvFp4 MoE backend …`.
+prefer NVFP4 there. Verify the chosen MoE backend in the log: `Using '<BACKEND>' NvFp4 MoE backend …` — or
+run `scripts/assert-native.sh kimi-k26` (verdict NATIVE FP4 vs MARLIN/fallback; exit 0/1/2).
 
 ## Checkpoint download gotchas (engine-agnostic, `scripts/download.sh`)
 - The repo uses **Xet**; `HF_HUB_ENABLE_HF_TRANSFER` is ignored and the Xet client can deadlock at
@@ -179,11 +189,12 @@ prefer NVFP4 there. Verify the chosen MoE backend in the log: `Using '<BACKEND>'
   `sudo mkdir -p "$HF_HOME" && sudo chown $USER "$HF_HOME"`.
 
 ## Tuning & limits
-- KV pool at 0.85 GPU-mem utilization = **116,470 tokens** with bf16 KV (measured, SGLang
+- KV pool at 0.85 GPU-mem utilization = **116,153 tokens** with bf16 KV (measured, SGLang
   0.5.12.post1) → a single request can't reach 256K. **FP8 KV cache doubles it**:
   `KV_CACHE_DTYPE=fp8_e4m3` (env knob in `serve_docker_sglang.sh`) → **232,306 tokens**, verify
-  5/5 incl. vision, throughput parity at c1/c8 and **+86% at c128** (see baseline below). vLLM
-  equivalent: `--kv-cache-dtype fp8`.
+  5/5 incl. vision, throughput parity through c64 and **+13.5% at c128** under sustained load
+  (the larger pool recovers bf16's high-concurrency dip — measured; tables in the
+  `llm-inference-benchmark` skill). vLLM equivalent: `--kv-cache-dtype fp8`.
 - **Do NOT raise mem-fraction to 0.90 on this model/hardware** (measured 2026-06-11): the static
   pool leaves <1 GB/GPU transient headroom and the server **OOM-crashes** — the MoonViT vision
   tower allocates ~0.1–1 GB/request *outside* the pool (112 MiB alloc failed with 4 MiB free), and
@@ -193,35 +204,61 @@ prefer NVFP4 there. Verify the chosen MoE backend in the log: `Using '<BACKEND>'
 - RTX PRO 6000 Blackwell SE has **no NVLink** — TP=8 all-reduce rides PCIe. Switch sharing and the
   NUMA split are *board*-specific, so check `nvidia-smi topo -m` (verified host: GPU pairs share a
   PCIe switch (PIX), GPUs 0-3 vs 4-7 cross-NUMA).
-- Reference throughput baselines (SGLang 0.5.12.post1, reference host, 1024 in / 256 out,
-  out-tok/s @ c1/8/64/128, measured 2026-06-11):
-  - bf16 KV, 0.85 (engine default): **59.7 / 206.7 / 388.7 / 329.9** — reproduces the retired
-    native deploy within ±1.5%; containerization costs nothing. (c128 < c64 = KV pressure at 116K.)
-  - fp8 KV, 0.85 (`KV_CACHE_DTYPE=fp8_e4m3`; **production config on the reference host since
-    2026-06-11**): **59.4 / 208.2 / 398.5 / 613.3** — the c128 KV-pressure regression disappears
-    with the 232K pool. Re-confirmed in production under systemd 2026-06-12:
-    **59.3 / 207.1 / 396.1 / 610.7** (every point within 0.6%; service stayed healthy through the
-    sweep) — c128 is **+85% over bf16**, reproducibly.
-  - vLLM 0.22.1 (0.95 util, 131K max-len, bf16 KV): **44.5 / 183.1 / 332.9 / 474.2** — KV pool
-    166,960 tokens; slower than SGLang at every point (−25% single-stream). Client:
-    `sglang.bench_serving --backend vllm` run from the SGLang image (`--network host`, no GPU).
-  Benchmark any new engine or image bump against these: `scripts/bench_sweep_sglang.sh`
-  (`sglang.bench_serving` via `docker exec`) / `scripts/bench_sweep_vllm.sh` (client runs from the
-  SGLang image over `--network host` — the vLLM image ships no bench tool).
+- **Throughput baselines → the `llm-inference-benchmark` skill** (canonical sweep tables, the
+  sustained-load methodology, NVFP4 A/B, proxy overhead, cross-host method, historical logs).
+  Deploy-relevant conclusions (all measured on the reference host):
+  - **SGLang > vLLM** on INT4 throughput at every concurrency (vLLM trades it for far lower TTFT
+    at high concurrency).
+  - **fp8 KV ≈ free**: parity through c64, **+13.5% at c128** sustained → the production default.
+  - **NVFP4 marlin > native b12x** (~12% end-to-end; PCIe-comm-bound) → `MOE_BACKEND=marlin` default.
 
 ## Productionization (Phase 5)
 - Serving: see "Production" under the primary path above (docker systemd unit XOR restart policy).
 - Reverse proxy + auth: **`scripts/setup_proxy.sh`** (idempotent, engine-agnostic) installs Caddy in
-  front with a real **Tailscale Let's Encrypt** cert + **Bearer API-key** gate and locks `:30000` to
-  loopback via iptables. Prereq: enable "HTTPS Certificates" in the Tailscale admin console (DNS) so
-  `tailscale cert` works — the script auto-detects the node's MagicDNS name. Key lives in
-  `/etc/caddy/kimi.env`; clients use `https://<magicdns>/v1` with `Authorization: Bearer <key>`. A
-  weekly `kimi-cert-renew.timer` refreshes the ~90-day cert. (Tailscale already encrypts transit via
-  WireGuard, so this TLS is app-layer for https:// clients. The loopback firewall re-applies at boot;
-  the fully robust alternative is binding the server to `127.0.0.1` via `HOST=`.) **No Tailscale?**
-  The script's cert steps are Tailscale-specific, but the shape carries over: point a public DNS name
-  at the host, drop the `tls` line from the Caddyfile (Caddy's built-in ACME then issues the cert) and
-  skip `kimi-cert-renew.*`; the Bearer-key gate and the loopback lock are unchanged.
+  front with a real **Tailscale Let's Encrypt** cert + **Bearer API-key** gate (and retires any legacy
+  host firewall — see "Access model"). Prereq: enable "HTTPS Certificates" in the Tailscale admin
+  console (DNS) so `tailscale cert` works — the script auto-detects the node's MagicDNS name. Key
+  lives in `/etc/caddy/kimi.env`; clients use `https://<magicdns>/v1` with
+  `Authorization: Bearer <key>`. A weekly `kimi-cert-renew.timer` refreshes the ~90-day cert.
+  (Tailscale already encrypts transit via WireGuard, so this TLS is app-layer for https:// clients.)
+  **No Tailscale?** The cert steps are Tailscale-specific, but the shape carries over: point a public
+  DNS name at the host, drop the `tls` line from the Caddyfile (Caddy's built-in ACME then issues the
+  cert) and skip `kimi-cert-renew.*`; the Bearer-key gate is unchanged.
+- **Access model — STRUCTURAL (no host firewall), via the bind address.** The server runs
+  **`--network host`** (required for NCCL's transport — see "Why each container flag") and binds the
+  **host LAN IP only** (`--host <LAN_IP>`; `LAN_IP` = default-route src — `ip route get 1.1.1.1 |
+  grep -oP 'src \K\S+'` — override `HOST=<ip>`; fail-safe to loopback, never `0.0.0.0`):
+
+  | From → endpoint | Result | Why |
+  |---|---|---|
+  | LAN → `<lan-ip>:PORT` | **200, unauthenticated** | server is bound on the LAN IP (trusted GPU LAN) |
+  | Tailnet → `<tailnet-ip>:PORT` (raw) | **000, refused** | no listener on the tailnet IP — structural, no firewall |
+  | Loopback → `127.0.0.1:PORT` | **000, refused** | server is on the LAN IP, not loopback |
+  | Tailnet → Caddy `https://<magicdns>` `:443` + Bearer | **200, authenticated** | TLS + key gate; Caddy upstreams to `<lan-ip>:PORT` |
+  | Bench client (own netns) → `<lan-ip>:PORT` | **200** | isolated load generator, reaches the LAN-IP listener |
+
+  - **LAN → `<lan-ip>:PORT`** = reachable, **unauthenticated** (trusted GPU LAN).
+  - **Tailnet → `<tailnet-ip>:PORT`** = **no listener bound there → connection refused**; the tailnet
+    must use the **authenticated Caddy `:443`** (Bearer). The block is *structural* (the server simply
+    isn't bound on the tailnet IP), not a firewall — nothing to keep running, no `ts-input` ordering risk.
+  - **Loopback → `127.0.0.1:PORT`** = **also no listener** (the server is on the LAN IP, not loopback).
+    So **Caddy's upstream and `verify.sh` both target `<LAN_IP>:PORT`**, not `127.0.0.1` —
+    `setup_proxy.sh` writes `reverse_proxy <LAN_IP>:PORT` and `verify.sh` defaults `HOST=<LAN_IP>`.
+    (Connecting to one's own LAN IP short-circuits through the kernel loopback path — no wire traffic.)
+  - The **bench client is the opposite**: it runs in its **own net namespace** (not host-net, since
+    it's just a load generator) and reaches the server at `<LAN_IP>:PORT`.
+  - **Caddy overhead is negligible** — measured ~1% throughput / +15 ms TTFT @ c1 vs the raw LAN IP,
+    so the authenticated path is fine for throughput work (measurement table + how to bench through
+    the proxy: the `llm-inference-benchmark` skill).
+  - ⚠ Do **not** add a host INPUT firewall on PORT (the retired `kimi-fw`/`kimi-netguard`): unneeded
+    (the bind already excludes the tailnet) and its catch-all `DROP` blocks the bench container
+    (source = docker bridge `172.17.x`). `setup_proxy.sh` removes both.
+  Verify after any change — from another host: raw `http://<tailnet-ip>:PORT` → **000 (refused)**;
+  `http://<lan-ip>:PORT` → **200**; `https://<magicdns>/v1` + key → **200**; and `ss -tlnp` shows the
+  port bound **only on `<lan-ip>`** (never `0.0.0.0`, never `127.0.0.1`, never the tailnet IP).
+- **Cross-host benchmark.** The LAN-open access model is what lets one host bench another's server
+  directly (verified both ways 3ed↔3ee) — method, knobs, and numbers: the `llm-inference-benchmark`
+  skill.
 - `dcgm-exporter` + Prometheus + Grafana; scrape the server's `/metrics` (queue depth, KV utilization,
   tok/s) — exposed by both vLLM and SGLang.
 

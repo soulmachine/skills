@@ -1,6 +1,6 @@
 ---
 name: deploy-kimi-k26-on-rtx-pro-6000
-description: Deploy and serve Moonshot Kimi-K2.6 (1T MoE, MLA, 256K context, vision) in a user-chosen quantization — official INT4 QAT (moonshotai/Kimi-K2.6, compressed-tensors→Marlin; vLLM or SGLang) or NVFP4 (nvidia/Kimi-K2.6-NVFP4, ModelOpt FP4; vLLM only — SGLang NVFP4 is NaN-broken on sm_120) — on a Linux server (verified Ubuntu 26.04) with 8× NVIDIA RTX PRO 6000 Blackwell Server Edition (96 GB, sm_120) GPUs. The quantization and the engine are both chosen at deploy time with a hardware-based recommendation. Runs an official-image Docker container via nvidia-container-toolkit CDI (--device nvidia.com/gpu=all --ipc=host --network host, bind-mounted weights), exposing an OpenAI-compatible API on :30000 behind one static systemd service `kimi-k26` (quant + engine selected via its EnvironmentFile — only one 595 GB variant fits the 8-GPU pool at a time). Use when deploying or serving Kimi-K2.6 INT4 or NVFP4 on RTX PRO 6000 Blackwell / sm_120 hardware (vLLM-in-Docker, or SGLang-in-Docker for INT4) — or troubleshooting NCCL /dev/shm "unhandled system error" in GPU containers, sm_120 "no kernel image" errors, a missing-`ninja` JIT build failure (-runtime image tag), FlashInfer CuTe-DSL MLIR ICE (llvm.mlir.global_dtors), a vLLM startup ValueError "larger than the available KV cache memory" (gpu-memory-utilization is NOT mem-fraction-static), an OOM→SIGQUIT crash from raising SGLang mem-fraction above 0.85, NVFP4 TRITON_MLA shared-memory OutOfResources at CUDA-graph capture (Required 102400 > limit 101376), NVFP4 "b12x fused MoE requires CUDA 13", NVFP4 offline trust_remote_code FileNotFoundError for a module under blobs/ (e.g. tool_declaration_ts.py), or a slow/hung MoE weight load.
+description: Deploy and serve Moonshot Kimi-K2.6 (1T MoE, MLA, 256K context, vision) in a user-chosen quantization — official INT4 QAT (moonshotai/Kimi-K2.6, compressed-tensors→Marlin; vLLM or SGLang) or NVFP4 (nvidia/Kimi-K2.6-NVFP4, ModelOpt FP4; vLLM only — SGLang NVFP4 is NaN-broken on sm_120) — on a Linux server (verified Ubuntu 26.04) with 8× NVIDIA RTX PRO 6000 Blackwell Server Edition (96 GB, sm_120) GPUs. The quantization and the engine are both chosen at deploy time with a hardware-based recommendation. Runs an official-image Docker container via nvidia-container-toolkit CDI (--device nvidia.com/gpu=all --ipc=host --network host, bind-mounted weights; --network host is required for NCCL's GPU-to-GPU transport / IB-RoCE GPUDirect RDMA, and the server binds the host LAN IP only so the tailnet has no raw listener and reaches it only through the authenticated Caddy proxy — structural, no firewall), exposing an OpenAI-compatible API on :30000 behind one static systemd service `kimi-k26` (quant + engine selected via its EnvironmentFile — only one 595 GB variant fits the 8-GPU pool at a time). Use when deploying or serving Kimi-K2.6 INT4 or NVFP4 on RTX PRO 6000 Blackwell / sm_120 hardware (vLLM-in-Docker, or SGLang-in-Docker for INT4) — or troubleshooting NCCL /dev/shm "unhandled system error" in GPU containers, sm_120 "no kernel image" errors, a missing-`ninja` JIT build failure (-runtime image tag), FlashInfer CuTe-DSL MLIR ICE (llvm.mlir.global_dtors), a vLLM startup ValueError "larger than the available KV cache memory" (gpu-memory-utilization is NOT mem-fraction-static), an OOM→SIGQUIT crash from raising SGLang mem-fraction above 0.85, NVFP4 TRITON_MLA shared-memory OutOfResources at CUDA-graph capture (Required 102400 > limit 101376), NVFP4 "b12x fused MoE requires CUDA 13", NVFP4 offline trust_remote_code FileNotFoundError for a module under blobs/ (e.g. tool_declaration_ts.py), or a slow/hung MoE weight load.
 ---
 
 # Deploy Kimi-K2.6 (INT4 QAT or NVFP4) on 8× RTX PRO 6000 Blackwell Server Edition (sm_120)
@@ -64,8 +64,7 @@ step 6 as the go/no-go gate before fronting traffic.
    service name.
 
 4. **Download checkpoint** (~595 GB) into the HF hub cache, pinned to a commit. **Respect `HF_HOME`**
-   (default `~/.cache/huggingface`; point at big NVMe, e.g. `export HF_HOME=/data/huggingface`) — never
-   hardcode paths. `hf`/Xet may deadlock → the script falls back to parallel curl, verifies size/count
+   (default `~/.cache/huggingface`; set `HF_HOME` to a big-NVMe cache root) — never hardcode paths. `hf`/Xet may deadlock → the script falls back to parallel curl, verifies size/count
    vs the paginated HF tree API (curl + python3 stdlib only), writes `refs/main`:
    ```bash
    bash scripts/download.sh moonshotai/Kimi-K2.6 <commit-sha>      # INT4
@@ -93,22 +92,28 @@ step 6 as the go/no-go gate before fronting traffic.
    QUANT=int4  bash scripts/serve_docker_vllm.sh     # INT4 on vLLM
    QUANT=nvfp4 IMAGE=kimi-k26-nvfp4-vllm:cu130-mla bash scripts/serve_docker_vllm.sh   # NVFP4 on vLLM
    ```
-   Container: CDI GPUs, `--ipc=host --network host`, weights `:ro`, memlock/nofile ulimits,
+   Container: CDI GPUs, `--ipc=host --network host` (host-net required for NCCL transport / IB-RoCE
+   RDMA; server binds the LAN IP only → see REFERENCE "Access model"), weights `:ro`, memlock/nofile ulimits,
    `HF_HUB_OFFLINE=1`. Load ~10–15 min from NVMe (~4–5 min warm cache); ready on "The server is fired up
    and ready to roll!" (SGLang) / "Application startup complete" (vLLM) — `docker logs -f kimi-k26`.
 
 6. **Verify** — health, models, text, tool-call, and vision (sent as a base64 data URL):
    ```bash
    bash scripts/verify.sh
+   bash scripts/assert-native.sh kimi-k26   # NVFP4: confirm the MoE backend (NATIVE FP4 vs MARLIN fallback)
    ```
-   Optional throughput check vs the REFERENCE.md baselines: `bash scripts/bench_sweep_sglang.sh`
-   (or `bench_sweep_vllm.sh` — its client runs from the SGLang image; vLLM ships no bench tool).
+   Vision debug (dumps content + reasoning_content for a red PNG): `python3 scripts/vision-probe.py --model kimi-k2.6`.
+   Optional throughput check: use the **`llm-inference-benchmark`** skill — the canonical
+   `bench_sweep.sh`, the sweep methodology, and this hardware's recorded baselines all live there.
 
 7. **Productionize** — one static **`kimi-k26.service`** driven by **`/etc/kimi-k26.env`** (selects
    `FRAMEWORK`/`QUANT`/`IMAGE`). Only one 595 GB variant fits the 8-GPU pool, so the service name never
    changes — **switch quant/engine by editing the env file + `sudo systemctl restart kimi-k26`** (no
-   disable/enable). Use the unit **or** `DETACH=1`'s restart policy, never both.
+   disable/enable). Use the unit **or** `DETACH=1`'s restart policy, never both. The launcher goes on the
+   **root disk** (`/usr/local/bin`) so the service never depends on a `/data` mount being present at boot.
    ```bash
+   sudo install -m755 scripts/serve_docker_vllm.sh scripts/serve_docker_sglang.sh /usr/local/bin/  # launcher (root disk)
+   sudo mkdir -p /var/lib/kimi-k26                          # service state dir (WorkingDirectory)
    sudo cp scripts/kimi-k26.env.example /etc/kimi-k26.env   # EDIT: FRAMEWORK, QUANT, IMAGE, HF_HOME (BARE values!)
    sudo cp scripts/kimi-k26.service /etc/systemd/system/kimi-k26.service
    sudo systemctl daemon-reload && sudo systemctl enable --now kimi-k26   # journalctl -u kimi-k26 -f
@@ -116,8 +121,11 @@ step 6 as the go/no-go gate before fronting traffic.
    ⚠ **Keep `/etc/kimi-k26.env` values bare** — systemd `EnvironmentFile` folds an inline `# comment`
    into the value (mangles `HF_HOME` → `LocalEntryNotFoundError`). fp8 KV: add `KV_CACHE_DTYPE` (vLLM
    `fp8`, SGLang `fp8_e4m3`) — verified, ~2× KV pool.
-   TLS + Bearer-API-key reverse proxy + loopback firewall (engine-agnostic, fronts `:30000`):
-   `scripts/setup_proxy.sh`.
+   TLS + Bearer-API-key reverse proxy (engine-agnostic): `scripts/setup_proxy.sh`. Access policy is
+   **structural** — the `--network host` server binds the host **LAN IP only**, so the LAN reaches it
+   raw (unauthenticated) and the tailnet/loopback have no listener (tailnet → authenticated Caddy
+   `:443`, which upstreams to the LAN IP); **no host firewall** (setup_proxy retires any legacy
+   `kimi-fw`/`kimi-netguard`). See REFERENCE.md "Access model".
 
 ## Key facts (don't relearn these the hard way)
 - **`--ipc=host` is non-negotiable** for TP=8: NCCL needs shared memory and Docker's default 64 MB
@@ -142,7 +150,9 @@ step 6 as the go/no-go gate before fronting traffic.
   disable per request with `chat_template_kwargs:{"thinking":false}`.
 - **Vision**: send images as **base64 data URLs**. Server-side `image_url` URL-fetch gets 403 from
   UA-filtering hosts (e.g. Wikimedia) — fixture issue, not a MoonViT failure. vLLM additionally wants
-  `--mm-encoder-tp-mode data` (SGLang needs nothing extra).
+  `--mm-encoder-tp-mode data` (SGLang needs nothing extra). Debug an empty vision reply with
+  `scripts/vision-probe.py` — it shows whether the answer landed in `reasoning_content` (a `<think>`-block
+  artifact, fixed with more `max_tokens`) vs a real MoonViT failure.
 - MoE weight load is CPU-bound and slow (~10–15 min); high CPU + 0% GPU + quiet logs = *normal loading*.
 - `no kernel image is available` on sm_120 ⇒ the image predates Blackwell support — bump the tag.
 - **Cutover: wait for the GPUs to actually free before relaunching.** When swapping variants/engines (or

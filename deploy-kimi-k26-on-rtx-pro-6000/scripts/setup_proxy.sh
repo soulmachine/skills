@@ -12,9 +12,12 @@
 set -euo pipefail
 
 UPSTREAM_PORT="${UPSTREAM_PORT:-30000}"
+# The model server runs --network host bound to the LAN IP (not loopback), so Caddy's upstream is the
+# LAN IP. Auto-detect the default-route source; override with UPSTREAM_HOST=<ip>.
+UPSTREAM_HOST="${UPSTREAM_HOST:-$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || echo 127.0.0.1)}"
 DOMAIN="${DOMAIN:-$(tailscale status --json | python3 -c 'import sys,json;print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')}"
 [ -n "$DOMAIN" ] || { echo "ERROR: could not determine Tailscale DNS name; set DOMAIN=" >&2; exit 1; }
-echo "domain=$DOMAIN  upstream=127.0.0.1:$UPSTREAM_PORT"
+echo "domain=$DOMAIN  upstream=$UPSTREAM_HOST:$UPSTREAM_PORT"
 
 # 0) require Tailscale HTTPS certs to be enabled
 if ! tailscale status --json | python3 -c 'import sys,json;sys.exit(0 if (json.load(sys.stdin).get("CertDomains") or []) else 1)'; then
@@ -50,7 +53,7 @@ ${DOMAIN}:443 {
     @noauth not header Authorization "Bearer {\$KIMI_API_KEY}"
     route {
         respond @noauth "Unauthorized" 401
-        reverse_proxy 127.0.0.1:${UPSTREAM_PORT}
+        reverse_proxy ${UPSTREAM_HOST}:${UPSTREAM_PORT}
     }
 }
 EOF
@@ -59,26 +62,27 @@ EOF
 sudo mkdir -p /etc/systemd/system/caddy.service.d
 printf '[Service]\nEnvironmentFile=/etc/caddy/kimi.env\n' | sudo tee /etc/systemd/system/caddy.service.d/override.conf >/dev/null
 
-# 6) firewall: lock upstream to loopback (IPv4; server binds 0.0.0.0). INPUT chain, Docker-safe.
-sudo tee /usr/local/sbin/kimi-fw.sh >/dev/null <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-iptables -C INPUT -p tcp --dport ${UPSTREAM_PORT} -i lo -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport ${UPSTREAM_PORT} -i lo -j ACCEPT
-iptables -C INPUT -p tcp --dport ${UPSTREAM_PORT} -j DROP 2>/dev/null || iptables -I INPUT 2 -p tcp --dport ${UPSTREAM_PORT} -j DROP
-EOF
-sudo chmod 755 /usr/local/sbin/kimi-fw.sh
-sudo tee /etc/systemd/system/kimi-fw.service >/dev/null <<EOF
-[Unit]
-Description=Lock model-server upstream :${UPSTREAM_PORT} to loopback only
-After=network-online.target tailscaled.service docker.service
-Wants=network-online.target
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/kimi-fw.sh
-RemainAfterExit=yes
-[Install]
-WantedBy=multi-user.target
-EOF
+# 6) access policy for :${UPSTREAM_PORT} is STRUCTURAL — NO host firewall.
+#    The serve scripts run the container WITHOUT --network host and publish the port only to
+#    127.0.0.1 (Caddy/verify) + the host LAN IP (-p 127.0.0.1:PORT:PORT -p <LAN_IP>:PORT:PORT).
+#    The tailnet IP is never published, so raw :${UPSTREAM_PORT} simply has no listener there
+#    (connection refused) — the tailnet must use the authenticated Caddy :443. LAN clients hit the
+#    LAN-IP listener directly (unauthenticated, trusted LAN). Nothing to install here.
+#    Retire any legacy host firewall (the old kimi-fw loopback-lock or the kimi-netguard INPUT
+#    allowlist) so it can't interfere with the published-port path (its catch-all DROP blocks
+#    container-side bench traffic; see REFERENCE 'Access model').
+for legacy in kimi-fw kimi-netguard; do
+  if [ -e "/etc/systemd/system/${legacy}.service" ] || [ -e "/usr/local/sbin/${legacy}.sh" ]; then
+    sudo systemctl disable --now "${legacy}.service" 2>/dev/null || true
+    sudo rm -f "/etc/systemd/system/${legacy}.service" "/usr/local/sbin/${legacy}.sh"
+  fi
+done
+for r in "-i tailscale0 -p tcp --dport ${UPSTREAM_PORT} -j DROP" \
+         "-i lo -p tcp --dport ${UPSTREAM_PORT} -j ACCEPT" \
+         "-p tcp --dport ${UPSTREAM_PORT} -j DROP"; do
+  while sudo iptables -D INPUT $r 2>/dev/null; do :; done   # delete all copies (idempotent)
+done
+sudo systemctl daemon-reload
 
 # 7) weekly cert renewal (~90-day cert)
 sudo tee /usr/local/sbin/kimi-cert-renew.sh >/dev/null <<EOF
@@ -87,7 +91,8 @@ set -euo pipefail
 tailscale cert --cert-file /etc/caddy/certs/srv.crt --key-file /etc/caddy/certs/srv.key ${DOMAIN}
 chown root:caddy /etc/caddy/certs/srv.crt /etc/caddy/certs/srv.key
 chmod 640 /etc/caddy/certs/srv.crt /etc/caddy/certs/srv.key
-systemctl reload caddy
+# the Caddyfile sets `admin off`, so `systemctl reload` (admin-API hot reload) fails — restart instead
+systemctl try-reload-or-restart caddy || systemctl restart caddy
 EOF
 sudo chmod 755 /usr/local/sbin/kimi-cert-renew.sh
 sudo tee /etc/systemd/system/kimi-cert-renew.service >/dev/null <<EOF
@@ -111,7 +116,7 @@ EOF
 
 # 8) enable + (re)start
 sudo systemctl daemon-reload
-sudo systemctl enable --now kimi-fw.service kimi-cert-renew.timer
+sudo systemctl enable --now kimi-cert-renew.timer
 sudo bash -c 'set -a; . /etc/caddy/kimi.env; caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile'
 sudo systemctl restart caddy
 sleep 2

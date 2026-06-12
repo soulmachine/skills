@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Smoke-test a running Kimi-K2.6 server (engine-agnostic — SGLang or vLLM): health, models,
 # text, tool-call, vision.
-#   PORT=30000 bash verify.sh
+#   PORT=30000 bash verify.sh                  # default: the host LAN IP (server binds it, not loopback)
+#   HOST=127.0.0.1 bash verify.sh              # override (e.g. if the server binds loopback)
+# The server runs --network host bound to the LAN IP, so verify targets the LAN IP by default.
 set -uo pipefail
-PORT="${PORT:-30000}"; B="http://127.0.0.1:${PORT}"
+PORT="${PORT:-30000}"
+HOST="${HOST:-$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || echo 127.0.0.1)}"
+B="http://${HOST}:${PORT}"
 py(){ python3 "$@"; }
 
 echo "== 1. /health =="; curl -sS -m 10 "$B/health" -w '  [HTTP %{http_code}]\n' || echo DOWN
