@@ -38,6 +38,7 @@ HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-30000}"
 TP="${TP:-8}"
 MEM_FRACTION_STATIC="${MEM_FRACTION_STATIC:-0.85}"
+SERVED_NAME="${SERVED_NAME:-kimi-k2.6}"   # OpenAI `model` id clients must send; keep stable for your fleet
 # Optional: KV_CACHE_DTYPE=fp8_e4m3 halves KV bytes/token (~2x pool). Affects numerics — re-verify.
 EXTRA_FLAGS=()
 [ -n "${KV_CACHE_DTYPE:-}" ] && EXTRA_FLAGS+=(--kv-cache-dtype "$KV_CACHE_DTYPE")
@@ -51,6 +52,19 @@ GPU_ARGS="${GPU_ARGS:---device nvidia.com/gpu=all}"
 
 RUN_MODE=(--rm)
 if [ "${DETACH:-0}" = "1" ]; then RUN_MODE=(-d --restart unless-stopped); fi
+
+# Pre-launch cutover guard: drop any namesake container, then WAIT for the GPU pool to actually free
+# (a prior ~595 GB instance's teardown isn't instant; launching too early OOMs the workers at init, and
+# a failed init can LEAK GPU memory into a crash-loop). Dedicated box → safe; WAIT_GPU_FREE=0 to skip.
+docker rm -f "$NAME" >/dev/null 2>&1 || true
+if [ "${WAIT_GPU_FREE:-1}" = "1" ] && command -v nvidia-smi >/dev/null 2>&1; then
+  for _ in $(seq 1 60); do                       # up to ~120 s
+    busy=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '($1+0)>2000{n++} END{print n+0}')
+    [ "${busy:-0}" -eq 0 ] && break
+    echo ">> cutover: waiting for $busy GPU(s) to release before launch…"; sleep 2
+  done
+  [ "${busy:-0}" -ne 0 ] && echo ">> WARN: $busy GPU(s) still busy — launch may OOM (REFERENCE: 'cutover / leaked GPU memory')." >&2
+fi
 
 # --ipc=host: NCCL shm for TP=8 (Docker's default 64MB /dev/shm breaks it; alt: --shm-size=32g)
 # --network host: binds the host stack — loopback firewall + reverse proxy work exactly like native
@@ -68,7 +82,7 @@ exec docker run "${RUN_MODE[@]}" --name "$NAME" \
   "$IMAGE" \
   python3 -m sglang.launch_server \
   --model-path "$MODEL_ARG" \
-  --served-model-name kimi-k2.6 \
+  --served-model-name "$SERVED_NAME" \
   --tp-size "$TP" \
   --trust-remote-code \
   --context-length 262144 \

@@ -86,6 +86,17 @@ Blackwell SE reference hardware**, vLLM elsewhere per the model card's primary g
   (`-d --restart unless-stopped`), never both. The static name also prevents a double-enable that would
   fight for `:30000` + all GPUs. (Switching engine/quant restarts in place — the new container reuses
   the port and resident weights cleanly since the old one is stopped first by `ExecStartPre`.)
+- **Cutover / `Engine core initialization failed` crash-loop / leaked GPU memory.** Migrating off a
+  running instance: **stop the old service, then wait for `nvidia-smi` to show every GPU back near 0 and
+  `:30000` free BEFORE starting the new one** — a ~595 GB / 8-GPU teardown takes 30–60 s. Launch too
+  early and the workers OOM at *executor init* (`WorkerProc initialization failed` → `Engine core
+  initialization failed`, **before** weight load). Worse: a failed init can **leak GPU memory** that no
+  container holds, so each auto-restart re-OOMs and the loop never self-heals (the NCCL
+  `TCPStore … should dump … Broken pipe` lines are teardown noise, *not* the root cause). **Recover:**
+  `systemctl stop kimi-k26`; find the orphan with `nvidia-smi --query-compute-apps=pid,used_memory
+  --format=csv,noheader`; `sudo kill -9 <pid>`; confirm all GPUs → 0; `systemctl reset-failed kimi-k26`;
+  start. The serve scripts now wait for the pool to free pre-launch (`WAIT_GPU_FREE=1`, ~120 s cap) and
+  the unit caps the loop at `StartLimitBurst=3` / 10 min so it can't leak indefinitely.
 - **Status.** **Both engines VERIFIED end-to-end 2026-06-11** on the reference host (verify.sh 5/5
   each, incl. tool-call + vision). SGLang-in-Docker is what the host runs (systemd, CDI, restart
   cycle, fp8 KV adopted) and is faster at every measured concurrency (see baselines); vLLM-in-Docker verified at

@@ -58,8 +58,10 @@ TP="${TP:-8}"
 # default. Full 256K context needs fp8 KV (KV_CACHE_DTYPE=fp8) — bf16 KV at 256K needs >100% VRAM.
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.95}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-131072}"
+SERVED_NAME="${SERVED_NAME:-kimi-k2.6}"   # the OpenAI `model` id clients must send; keep stable for your fleet
 EXTRA_FLAGS=()
 [ -n "${KV_CACHE_DTYPE:-}" ] && EXTRA_FLAGS+=(--kv-cache-dtype "$KV_CACHE_DTYPE")
+[ -n "${MAX_SEQS:-}" ]       && EXTRA_FLAGS+=(--max-num-seqs "$MAX_SEQS")   # cap concurrent seqs (KV-bound)
 # GPU access: CDI by default (spec at /etc/cdi/nvidia.yaml via `nvidia-ctk cdi generate`, kept
 # fresh by nvidia-cdi-refresh.*; plain runc, no legacy nvidia runtime hook — current best
 # practice). Legacy runtime-hook alternative: GPU_ARGS="--gpus all"
@@ -67,6 +69,21 @@ GPU_ARGS="${GPU_ARGS:---device nvidia.com/gpu=all}"
 
 RUN_MODE=(--rm)
 if [ "${DETACH:-0}" = "1" ]; then RUN_MODE=(-d --restart unless-stopped); fi
+
+# Pre-launch cutover guard: drop any namesake container, then WAIT for the GPU pool to actually free.
+# A prior ~595 GB instance's teardown is NOT instant — launching while a GPU is still held OOMs the
+# workers at executor init, and a failed init can LEAK GPU memory that perpetuates a crash-loop (seen
+# in practice: a swap done ~5 s after stopping the old service left 45 GB stuck on GPU 0). On a
+# dedicated inference box this wait is safe; set WAIT_GPU_FREE=0 if you share the GPUs.
+docker rm -f "$NAME" >/dev/null 2>&1 || true
+if [ "${WAIT_GPU_FREE:-1}" = "1" ] && command -v nvidia-smi >/dev/null 2>&1; then
+  for _ in $(seq 1 60); do                       # up to ~120 s
+    busy=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '($1+0)>2000{n++} END{print n+0}')
+    [ "${busy:-0}" -eq 0 ] && break
+    echo ">> cutover: waiting for $busy GPU(s) to release before launch…"; sleep 2
+  done
+  [ "${busy:-0}" -ne 0 ] && echo ">> WARN: $busy GPU(s) still busy — launch may OOM; a crashed run may have leaked it (REFERENCE: 'cutover / leaked GPU memory')." >&2
+fi
 
 # --ipc=host: NCCL shm for TP=8 (Docker's default 64MB /dev/shm breaks it; alt: --shm-size=32g)
 # --network host: binds the host stack — loopback firewall + reverse proxy work exactly like native
@@ -78,9 +95,11 @@ exec docker run "${RUN_MODE[@]}" --name "$NAME" \
   --ulimit memlock=-1 --ulimit nofile=1048576 \
   "${MODEL_MOUNT[@]}" \
   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
+  -e VLLM_WORKER_MULTIPROC_METHOD=spawn -e NCCL_CUMEM_ENABLE=0 \
+  -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   "$IMAGE" \
   --model "$MODEL_ARG" \
-  --served-model-name kimi-k2.6 \
+  --served-model-name "$SERVED_NAME" \
   --trust-remote-code \
   "${QUANT_FLAGS[@]}" \
   --tensor-parallel-size "$TP" \

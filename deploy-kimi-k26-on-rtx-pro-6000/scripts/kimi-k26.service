@@ -18,6 +18,10 @@ Description=Kimi-K2.6 (TP=8, Docker) OpenAI-compatible API on :30000 — quant+e
 After=docker.service network-online.target nvidia-persistenced.service
 Requires=docker.service
 Wants=network-online.target
+# Stop an endless crash-loop after 3 failures / 10 min: a failed TP=8 init can LEAK GPU memory, and
+# each rapid retry leaks more (compounding). `systemctl reset-failed kimi-k26` after fixing to resume.
+StartLimitIntervalSec=600
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -34,7 +38,8 @@ ExecStop=/usr/bin/docker stop -t 120 kimi-k26
 TimeoutStartSec=1800
 TimeoutStopSec=150
 Restart=on-failure
-RestartSec=10
+# 30s (not 10s) gives a crashed TP=8 worker's ~595 GB CUDA teardown time to release before retry.
+RestartSec=30
 
 [Install]
 WantedBy=multi-user.target

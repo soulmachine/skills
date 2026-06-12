@@ -145,6 +145,12 @@ step 6 as the go/no-go gate before fronting traffic.
   `--mm-encoder-tp-mode data` (SGLang needs nothing extra).
 - MoE weight load is CPU-bound and slow (~10–15 min); high CPU + 0% GPU + quiet logs = *normal loading*.
 - `no kernel image is available` on sm_120 ⇒ the image predates Blackwell support — bump the tag.
+- **Cutover: wait for the GPUs to actually free before relaunching.** When swapping variants/engines (or
+  off an ad-hoc deployment), a ~595 GB / 8-GPU teardown takes 30–60 s; starting too soon OOMs the workers
+  at *executor init* (`Engine core initialization failed`, before weight load) and a failed init can
+  **leak GPU memory** that turns into a crash-loop. The serve scripts now wait (`WAIT_GPU_FREE`); if a
+  loop already leaked, `nvidia-smi --query-compute-apps`, `kill -9` the orphan, confirm GPUs → 0, restart.
+  To preserve the client contract across a migration, keep `SERVED_NAME` stable (it's the OpenAI `model` id).
 
 ## When startup crashes or hangs
 See **[REFERENCE.md](REFERENCE.md)**: per-engine Docker paths (image pinning, CDI, NCCL/shm, the
