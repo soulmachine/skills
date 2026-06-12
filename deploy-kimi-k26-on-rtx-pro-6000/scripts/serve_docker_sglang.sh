@@ -13,22 +13,34 @@
 #   docker run --rm --device nvidia.com/gpu=all --entrypoint nvidia-smi "$IMAGE"
 set -euo pipefail
 
+# QUANT: int4 (official QAT) is the only SGLang-supported quant on sm_120. NVFP4 on SGLang produces
+# NaN on sm_120 (sgl-project #18954, flashinfer #2577) — refuse it and point at the vLLM path.
+QUANT="${QUANT:-int4}"
+if [ "$QUANT" = "nvfp4" ]; then
+  echo "NVFP4 on SGLang is broken on sm_120 (NaN; sgl #18954). Use vLLM: QUANT=nvfp4 bash serve_docker_vllm.sh" >&2
+  exit 2
+fi
+[ "$QUANT" = "int4" ] || { echo "Unknown QUANT='$QUANT' (SGLang supports: int4)" >&2; exit 2; }
+MODEL_REPO="${MODEL_REPO:-moonshotai/Kimi-K2.6}"
 IMAGE="${IMAGE:-lmsysorg/sglang:v0.5.12.post1-cu130}"  # PIN a release tag (never :latest); bump deliberately
-NAME="${NAME:-kimi-k26-int4}"
+NAME="${NAME:-kimi-k26}"                               # static singleton name (one model fills the 8-GPU pool)
 export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 if [ -n "${MODEL_PATH:-}" ]; then
   # explicit checkpoint dir — must be self-contained (real files, not hub-cache symlinks)
   MODEL_MOUNT=(-v "$MODEL_PATH:/models/kimi:ro"); MODEL_ARG=/models/kimi
 else
   # resolve from the HF hub cache; mount the whole repo dir so snapshot symlinks into ../../blobs resolve
-  KIMI_CACHE="$HF_HOME/hub/models--moonshotai--Kimi-K2.6"
-  [ -f "$KIMI_CACHE/refs/main" ] || { echo "Kimi-K2.6 not in HF cache ($KIMI_CACHE). Run: bash scripts/download.sh moonshotai/Kimi-K2.6 <commit-sha>" >&2; exit 1; }
+  KIMI_CACHE="$HF_HOME/hub/models--${MODEL_REPO//\//--}"
+  [ -f "$KIMI_CACHE/refs/main" ] || { echo "$MODEL_REPO not in HF cache ($KIMI_CACHE). Run: bash scripts/download.sh $MODEL_REPO <commit-sha>" >&2; exit 1; }
   MODEL_MOUNT=(-v "$KIMI_CACHE:/models/repo:ro"); MODEL_ARG="/models/repo/snapshots/$(cat "$KIMI_CACHE/refs/main")"
 fi
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-30000}"
 TP="${TP:-8}"
 MEM_FRACTION_STATIC="${MEM_FRACTION_STATIC:-0.85}"
+# Optional: KV_CACHE_DTYPE=fp8_e4m3 halves KV bytes/token (~2x pool). Affects numerics — re-verify.
+EXTRA_FLAGS=()
+[ -n "${KV_CACHE_DTYPE:-}" ] && EXTRA_FLAGS+=(--kv-cache-dtype "$KV_CACHE_DTYPE")
 # Persisted JIT cache: gptq_marlin_repack builds once (~7s), restarts reuse it
 # (cwd-relative default — the systemd unit's WorkingDirectory anchors it; override via JIT_CACHE)
 JIT_CACHE="${JIT_CACHE:-$PWD/tvm-ffi-cache}"
@@ -64,9 +76,13 @@ exec docker run "${RUN_MODE[@]}" --name "$NAME" \
   --reasoning-parser kimi_k2 \
   --mem-fraction-static "$MEM_FRACTION_STATIC" \
   --chunked-prefill-size 16384 \
+  "${EXTRA_FLAGS[@]}" \
   --host "$HOST" --port "$PORT"
 
 # Weight load ~10-15 min from NVMe; ready on "The server is fired up and ready to roll!".
-# Watch: docker logs -f kimi-k26-int4
-# Tuning knobs (benchmark vs native baseline 59/210/390/330 out-tok/s @ c1/8/64/128):
-#   MEM_FRACTION_STATIC=0.90, --kv-cache-dtype fp8_e4m3 (KV pool ~116K tokens at 0.85)
+# Watch: docker logs -f "$NAME"   (default container name: kimi-k26)
+# Measured 2026-06-11 (1024in/256out, out-tok/s @ c1/8/64/128):
+#   bf16 KV (default):        59.7/206.7/388.7/329.9, KV pool 116K tokens
+#   KV_CACHE_DTYPE=fp8_e4m3:  59.4/208.2/398.5/613.3, KV pool 232K (verify 5/5 incl. vision)
+# Do NOT set MEM_FRACTION_STATIC=0.90: <1GB transient headroom -> OOM kills the server
+# (vision tower allocates outside the pool; even text @ c8 needed 804MB transient).

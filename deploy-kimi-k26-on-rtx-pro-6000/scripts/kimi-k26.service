@@ -1,0 +1,40 @@
+# systemd unit: Kimi-K2.6 OpenAI-compatible API on :30000 — ONE static service for the host.
+# A single 1T checkpoint (~595 GB) fills the entire 8×96 GB pool, so only one variant ever runs here;
+# the service name stays `kimi-k26` across quant/engine changes (constant target for the proxy,
+# firewall, and monitoring). The active variant lives in the EnvironmentFile, not the unit name.
+#
+# Switch quant/engine = edit /etc/kimi-k26.env, then: sudo systemctl restart kimi-k26
+#   QUANT=int4|nvfp4     FRAMEWORK=vllm|sglang   (sglang supports int4 only on sm_120)
+# NVFP4 prereqs (once): bash build_nvfp4_image.sh ; bash prep_remote_code.sh nvidia/Kimi-K2.6-NVFP4
+#
+# Install:
+#   cp serve_docker_vllm.sh serve_docker_sglang.sh <WorkingDirectory>/    # decouple from skill dir
+#   sudo cp kimi-k26.env.example /etc/kimi-k26.env   # then EDIT it (bare values — see warning inside)
+#   sudo cp kimi-k26.service /etc/systemd/system/kimi-k26.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now kimi-k26
+#   journalctl -u kimi-k26 -f      # ~10-15 min load -> "Application startup complete" / "fired up and ready"
+[Unit]
+Description=Kimi-K2.6 (TP=8, Docker) OpenAI-compatible API on :30000 — quant+engine per /etc/kimi-k26.env
+After=docker.service network-online.target nvidia-persistenced.service
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/data/devops/kimi
+# All site-specific values (QUANT, FRAMEWORK, IMAGE, HF_HOME, PORT, NAME, KV_CACHE_DTYPE, MOE_BACKEND…)
+# live here. KEEP VALUES BARE — systemd EnvironmentFile folds inline '# comments' into the value.
+EnvironmentFile=/etc/kimi-k26.env
+# systemd expands ${FRAMEWORK} (from the EnvironmentFile) -> serve_docker_vllm.sh / serve_docker_sglang.sh.
+ExecStart=/bin/bash /data/devops/kimi/serve_docker_${FRAMEWORK}.sh
+# The serve script names the FOREGROUND container `kimi-k26` (static); these target the same name.
+ExecStartPre=-/usr/bin/docker rm -f kimi-k26
+ExecStop=/usr/bin/docker stop -t 120 kimi-k26
+# Type=simple -> "active" right after fork; the ~10-15 min weight load happens after.
+TimeoutStartSec=1800
+TimeoutStopSec=150
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
