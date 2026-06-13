@@ -7,7 +7,7 @@
 # image ships no bench tool; the client is just a load generator hitting the server's published
 # TARGET_HOST:PORT — so it works local (host LAN IP) or cross-host (peer LAN IP), fully isolated).
 #
-#   bash bench_sweep.sh                                                  # conc {1,8,64,128}
+#   bash bench_sweep.sh                                                  # conc {1,8,16,32,64,128}
 #   MODEL_REPO=nvidia/Kimi-K2.6-NVFP4 CONC="1 8 16 64 128" SERVER_NAME=kimi-k26 \
 #     LOG=./bench.log bash bench_sweep.sh
 #
@@ -19,8 +19,8 @@ set -uo pipefail
 BENCH_IMG="${BENCH_IMG:-lmsysorg/sglang:v0.5.12.post1-cu130}"   # the standalone bench-client image
 export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 MODEL_REPO="${MODEL_REPO:-moonshotai/Kimi-K2.6}"   # tokenizer source, resolved offline from the HF cache
-SERVED_NAME="${SERVED_NAME:-kimi-k2.6}"            # request `model` id — MUST match the server
-CONC="${CONC:-1 8 64 128}"                         # concurrency sweep
+MODEL_NAME="${MODEL_NAME:-kimi-k2.6}"            # request `model` id — MUST match the server
+CONC="${CONC:-1 8 16 32 64 128}"                   # concurrency sweep (dense: locates the knee, incl. c16/c32)
 PROMPTS_PER="${PROMPTS_PER:-8}"                    # num-prompts = PROMPTS_PER * concurrency
 IN="${IN:-1024}"; OUT="${OUT:-256}"
 PORT="${PORT:-30000}"
@@ -58,14 +58,14 @@ header
 
 run() {
   local c=$1 np=$2
-  echo "########## max_concurrency=$c num_prompts=$np in=$IN out=$OUT model=$SERVED_NAME" | tee -a "$LOG"
+  echo "########## max_concurrency=$c num_prompts=$np in=$IN out=$OUT model=$MODEL_NAME" | tee -a "$LOG"
   # Kimi tokenizer is a custom TikTokenTokenizer; sglang.bench_serving loads it with trust_remote_code
   # internally (no flag). random-ids needs only the tokenizer (vocab size) + the OpenAI /v1 endpoint.
   # own net namespace (no --network host) — reaches the server's PUBLISHED $TARGET_HOST:$PORT
   docker run --rm -v "$KIMI_CACHE:/models/repo:ro" \
     -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 --entrypoint python3 "$BENCH_IMG" \
     -m sglang.bench_serving --backend sglang-oai --host "$TARGET_HOST" --port "$PORT" \
-    --model "$MODEL_PATH" --served-model-name "$SERVED_NAME" \
+    --model "$MODEL_PATH" --served-model-name "$MODEL_NAME" \
     --dataset-name random-ids --num-prompts "$np" \
     --random-input-len "$IN" --random-output-len "$OUT" --random-range-ratio 1.0 \
     --max-concurrency "$c" --disable-tqdm 2>&1 \
@@ -77,7 +77,7 @@ for c in $CONC; do np=$(( c * PROMPTS_PER )); [ "$np" -ge 1 ] || np=1; run "$c" 
 echo "SWEEP_DONE" | tee -a "$LOG"
 
 # ---- summary table parsed from $LOG ----
-echo; echo "== summary: $SERVED_NAME via sglang.bench_serving (OpenAI /v1/completions, in=$IN out=$OUT) =="
+echo; echo "== summary: $MODEL_NAME via sglang.bench_serving (OpenAI /v1/completions, in=$IN out=$OUT) =="
 printf '%-6s %-13s %-9s %-13s %-13s\n' conc out_tok/s req/s med_TTFT_ms med_TPOT_ms
 awk '
   /^########## max_concurrency=/ { for(i=1;i<=NF;i++) if($i ~ /^max_concurrency=/){split($i,a,"="); c=a[2]} ; ot=rs=tt="?" }

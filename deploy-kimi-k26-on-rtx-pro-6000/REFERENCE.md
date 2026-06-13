@@ -224,27 +224,35 @@ run `scripts/assert-native.sh kimi-k26` (verdict NATIVE FP4 vs MARLIN/fallback; 
   **No Tailscale?** The cert steps are Tailscale-specific, but the shape carries over: point a public
   DNS name at the host, drop the `tls` line from the Caddyfile (Caddy's built-in ACME then issues the
   cert) and skip `kimi-cert-renew.*`; the Bearer-key gate is unchanged.
-- **Access model — STRUCTURAL (no host firewall), via the bind address.** The server runs
-  **`--network host`** (required for NCCL's transport — see "Why each container flag") and binds the
-  **host LAN IP only** (`--host <LAN_IP>`; `LAN_IP` = default-route src — `ip route get 1.1.1.1 |
-  grep -oP 'src \K\S+'` — override `HOST=<ip>`; fail-safe to loopback, never `0.0.0.0`):
+- **Access model — bind `0.0.0.0` (fleet choice, 2026-06-13); the auth boundary is the router + Caddy,
+  not the bind.** The server runs **`--network host`** (required for NCCL's transport — see "Why each
+  container flag") and binds **`0.0.0.0`** (`HOST=0.0.0.0` in `/etc/kimi-k26.env`), so the raw `:30000`
+  API answers on **every private interface** — loopback, LAN, tailnet, and the `docker0`/`lxdbr0`
+  bridges. This host has **no public interface** (behind the LAN router; Caddy's `:443` serves a
+  *Tailscale MagicDNS* name, not a public domain), so `0.0.0.0` exposes **nothing to the internet** —
+  public reachability is purely a router decision.
 
   | From → endpoint | Result | Why |
   |---|---|---|
-  | LAN → `<lan-ip>:PORT` | **200, unauthenticated** | server is bound on the LAN IP (trusted GPU LAN) |
-  | Tailnet → `<tailnet-ip>:PORT` (raw) | **000, refused** | no listener on the tailnet IP — structural, no firewall |
-  | Loopback → `127.0.0.1:PORT` | **000, refused** | server is on the LAN IP, not loopback |
-  | Tailnet → Caddy `https://<magicdns>` `:443` + Bearer | **200, authenticated** | TLS + key gate; Caddy upstreams to `<lan-ip>:PORT` |
-  | Bench client (own netns) → `<lan-ip>:PORT` | **200** | isolated load generator, reaches the LAN-IP listener |
+  | loopback / LAN / tailnet → `<ip>:PORT` (raw) | **200, unauthenticated** | binds `0.0.0.0` — every private interface answers (verified 3ed 2026-06-13: 127.0.0.1 / LAN / tailnet all 200) |
+  | docker0 / lxdbr0 (containers) → `:PORT` (raw) | **200, unauthenticated** | also covered by `0.0.0.0` — accepted exposure |
+  | Tailnet → Caddy `https://<magicdns>` `:443` + Bearer | **200, authenticated** | TLS + key gate; Caddy upstreams to `<lan-ip>:PORT` (still works — LAN IP is bound) |
+  | Tailnet → Caddy `:443` *without* the key | **401** | Bearer gate (verified) |
+  | Public internet → anything | **no path** | host has no public IP; only a router port-forward could create one |
 
-  - **LAN → `<lan-ip>:PORT`** = reachable, **unauthenticated** (trusted GPU LAN).
-  - **Tailnet → `<tailnet-ip>:PORT`** = **no listener bound there → connection refused**; the tailnet
-    must use the **authenticated Caddy `:443`** (Bearer). The block is *structural* (the server simply
-    isn't bound on the tailnet IP), not a firewall — nothing to keep running, no `ts-input` ordering risk.
-  - **Loopback → `127.0.0.1:PORT`** = **also no listener** (the server is on the LAN IP, not loopback).
-    So **Caddy's upstream and `verify.sh` both target `<LAN_IP>:PORT`**, not `127.0.0.1` —
-    `setup_proxy.sh` writes `reverse_proxy <LAN_IP>:PORT` and `verify.sh` defaults `HOST=<LAN_IP>`.
-    (Connecting to one's own LAN IP short-circuits through the kernel loopback path — no wire traffic.)
+  - **"Authenticate from public" is enforced at the router, not the host:** forward **only** Caddy
+    `:443` (and only if/when a public DNS is added), **never `:30000`**. Since the host has no public
+    IP, that port-forward policy *is* the public-auth boundary.
+  - **Trade-offs accepted (user, 2026-06-13)** for `localhost`/tailnet convenience: (1) tailnet clients
+    can hit `:30000` raw, **bypassing Caddy's Bearer** (and the tailnet ACL is allow-all → any tailnet
+    device); (2) containers on `docker0`/`lxdbr0` get raw access.
+  - **Default vs this fleet:** the serve scripts still *default* to the structural **LAN-IP-only** bind
+    (`HOST` unset → `$LAN_IP`, fail-safe loopback — the older "tailnet/loopback refused, no firewall"
+    model); this fleet **overrides** to `HOST=0.0.0.0`. Revert = drop the `HOST=` line +
+    `systemctl restart kimi-k26`. (Caddy upstream + `verify.sh` still target `<LAN_IP>:PORT`, which
+    remains bound.)
+  - **No host firewall** (`kimi-fw`/`kimi-netguard` retired) — do **not** add an INPUT DROP on `:30000`:
+    it would also block the bench client (own netns, src docker bridge `172.17.x`).
   - The **bench client is the opposite**: it runs in its **own net namespace** (not host-net, since
     it's just a load generator) and reaches the server at `<LAN_IP>:PORT`.
   - **Caddy overhead is negligible** — measured ~1% throughput / +15 ms TTFT @ c1 vs the raw LAN IP,

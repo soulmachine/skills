@@ -44,7 +44,7 @@ HOST="${HOST:-${LAN_IP:-127.0.0.1}}"
 PORT="${PORT:-30000}"
 TP="${TP:-8}"
 MEM_FRACTION_STATIC="${MEM_FRACTION_STATIC:-0.85}"
-SERVED_NAME="${SERVED_NAME:-kimi-k2.6}"   # OpenAI `model` id clients must send; keep stable for your fleet
+MODEL_NAME="${MODEL_NAME:-kimi-k2.6}"   # OpenAI `model` id clients must send; keep stable for your fleet
 # Optional: KV_CACHE_DTYPE=fp8_e4m3 halves KV bytes/token (~2x pool). Affects numerics — re-verify.
 EXTRA_FLAGS=()
 [ -n "${KV_CACHE_DTYPE:-}" ] && EXTRA_FLAGS+=(--kv-cache-dtype "$KV_CACHE_DTYPE")
@@ -92,7 +92,7 @@ exec docker run "${RUN_MODE[@]}" --name "$NAME" \
   "$IMAGE" \
   python3 -m sglang.launch_server \
   --model-path "$MODEL_ARG" \
-  --served-model-name "$SERVED_NAME" \
+  --served-model-name "$MODEL_NAME" \
   --tp-size "$TP" \
   --trust-remote-code \
   --context-length 262144 \

@@ -63,6 +63,38 @@ step 6 as the go/no-go gate before fronting traffic.
    The (QUANT, FRAMEWORK) pair is the whole deploy identity; it goes in the env file (step 7), not the
    service name.
 
+3b. **NVFP4 only — choose the MoE backend** (skip entirely for INT4) — AskUserQuestion *"Which NVFP4
+   MoE backend?"*:
+   - **marlin (Recommended on sm_120)** — measured **faster at every concurrency** (~12% end-to-end;
+     the box is PCIe-comm-bound, so the native-FP4 GEMM speedup never reaches the wire) and leaves
+     **more KV** (b12x reserves extra workspace). The safe throughput pick.
+   - **flashinfer_b12x** — the **native FP4 tensor-core** path (vLLM PR #40082; needs the CUDA-13
+     patched image step 4b builds anyway). Pick it to exercise the FP4 tensor cores, or on hardware
+     where native FP4 is tuned (datacenter Blackwell uses `flashinfer_cutedsl` instead). Confirm the
+     dispatch after launch with `scripts/assert-native.sh kimi-k26` (NATIVE FP4 vs MARLIN fallback).
+   Sets `MOE_BACKEND` in the env file (step 7); `serve_docker_vllm.sh` defaults to `marlin` if unset.
+   (A/B numbers: the `llm-inference-benchmark` skill.)
+
+3c. **Choose the KV-cache dtype** — AskUserQuestion *"Which KV-cache dtype?"*, options derived from
+   the (engine, quant) just chosen; mark the first **(Recommended)**:
+   - **SGLang + INT4** → **`fp8_e4m3` (Recommended)** — verified on the reference host: KV pool
+     2× (116K→232K tokens, full-256K single request fits), verify 5/5 incl. vision, throughput
+     parity through c64 and +13.5% at c128. | `auto` (bf16 — engine default, most conservative
+     numerics, pool 116K) | `fp8_e5m2` (more exponent range, less mantissa — accepted by SGLang's Triton MLA backend, runtime-unverified here).
+   - **vLLM + INT4** → **`fp8` (Recommended)** — ~2× KV pool, and **required to reach 256K-class
+     context** on 96 GB GPUs (bf16 KV tops out ~131K `MAX_MODEL_LEN`). | `auto` (bf16 — the
+     verified 0.95/131K config).
+   - **vLLM + NVFP4** → **`fp8` (Recommended — effectively required)**: the NVFP4 checkpoint ships
+     FP8 KV scales; `serve_docker_vllm.sh` already defaults it for `QUANT=nvfp4`. | `auto` (ignores
+     the shipped scales; bigger KV bytes — only for debugging numerics).
+   *(Why the vLLM rows list no `fp8_e5m2`: on sm_120 vLLM serves Kimi through the **TRITON_MLA**
+   attention backend, whose KV menu is `{auto/bf16, fp8 = fp8_e4m3}` only — `fp8_e5m2`, `nvfp4`,
+   `turboquant_*` belong to non-MLA backends and hard-fail backend validation at startup. Verified
+   in-image, vLLM 0.22.1. SGLang uses a different MLA kernel, so its row is governed by its own
+   supported set — see the SGLang+INT4 row.)*
+   KV dtype changes numerics → re-run `verify.sh` after switching. Sets `KV_CACHE_DTYPE` in the env
+   file (step 7). (Measured impact tables: the `llm-inference-benchmark` skill.)
+
 4. **Download checkpoint** (~595 GB) into the HF hub cache, pinned to a commit. **Respect `HF_HOME`**
    (default `~/.cache/huggingface`; set `HF_HOME` to a big-NVMe cache root) — never hardcode paths. `hf`/Xet may deadlock → the script falls back to parallel curl, verifies size/count
    vs the paginated HF tree API (curl + python3 stdlib only), writes `refs/main`:
@@ -160,7 +192,7 @@ step 6 as the go/no-go gate before fronting traffic.
   at *executor init* (`Engine core initialization failed`, before weight load) and a failed init can
   **leak GPU memory** that turns into a crash-loop. The serve scripts now wait (`WAIT_GPU_FREE`); if a
   loop already leaked, `nvidia-smi --query-compute-apps`, `kill -9` the orphan, confirm GPUs → 0, restart.
-  To preserve the client contract across a migration, keep `SERVED_NAME` stable (it's the OpenAI `model` id).
+  To preserve the client contract across a migration, keep `MODEL_NAME` stable (it's the OpenAI `model` id).
 
 ## When startup crashes or hangs
 See **[REFERENCE.md](REFERENCE.md)**: per-engine Docker paths (image pinning, CDI, NCCL/shm, the

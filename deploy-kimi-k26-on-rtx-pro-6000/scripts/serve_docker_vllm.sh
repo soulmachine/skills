@@ -68,7 +68,7 @@ TP="${TP:-8}"
 # default. Full 256K context needs fp8 KV (KV_CACHE_DTYPE=fp8) — bf16 KV at 256K needs >100% VRAM.
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.95}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-131072}"
-SERVED_NAME="${SERVED_NAME:-kimi-k2.6}"   # the OpenAI `model` id clients must send; keep stable for your fleet
+MODEL_NAME="${MODEL_NAME:-kimi-k2.6}"   # the OpenAI `model` id clients must send; keep stable for your fleet
 EXTRA_FLAGS=()
 [ -n "${KV_CACHE_DTYPE:-}" ] && EXTRA_FLAGS+=(--kv-cache-dtype "$KV_CACHE_DTYPE")
 [ -n "${MAX_SEQS:-}" ]       && EXTRA_FLAGS+=(--max-num-seqs "$MAX_SEQS")   # cap concurrent seqs (KV-bound)
@@ -114,7 +114,7 @@ exec docker run "${RUN_MODE[@]}" --name "$NAME" \
   "${QUANT_ENV[@]}" \
   "$IMAGE" \
   --model "$MODEL_ARG" \
-  --served-model-name "$SERVED_NAME" \
+  --served-model-name "$MODEL_NAME" \
   --trust-remote-code \
   "${QUANT_FLAGS[@]}" \
   --tensor-parallel-size "$TP" \
