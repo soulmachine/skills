@@ -45,9 +45,9 @@ Blackwell SE reference hardware**, vLLM elsewhere per the model card's primary g
     critical container) runs `--network host`. (On a PCIe-only box NCCL can fall back to P2P+shm and
     a bridge happens to work, but host-net is the correct config for RDMA-capable GPU hosts and the
     safe default.) The **bench client** is the opposite — just a load generator, so it runs in its
-    **own net namespace** (not host-net) and reaches the server over the published/host LAN IP.
+    **own net namespace** (not host-net) and reaches the server over the host LAN IP.
     Because the server is host-net, its raw port is controlled by the **bind address** (see "Access
-    model"): it binds the **LAN IP only**, so the tailnet/loopback have no raw listener — no firewall.
+    model"): it binds **`0.0.0.0`**, and Caddy `:443` upstreams over loopback — no firewall.
   - `-v $MODEL_PATH:/models/kimi:ro` — bind-mount the weights; **never** bake ~600 GB into an image
     (overlayfs read path + unshippable image).
   - `--ulimit memlock=-1 --ulimit nofile=1048576` — NCCL pinned memory + fds for shards/connections.
@@ -224,9 +224,12 @@ run `scripts/assert-native.sh kimi-k26` (verdict NATIVE FP4 vs MARLIN/fallback; 
   **No Tailscale?** The cert steps are Tailscale-specific, but the shape carries over: point a public
   DNS name at the host, drop the `tls` line from the Caddyfile (Caddy's built-in ACME then issues the
   cert) and skip `kimi-cert-renew.*`; the Bearer-key gate is unchanged.
-- **Access model — bind `0.0.0.0` (fleet choice, 2026-06-13); the auth boundary is the router + Caddy,
+  **`admin off` ⇒ restart, not reload:** the Caddyfile disables the `:2019` admin API, so
+  `caddy reload` / `systemctl reload caddy` fail (`dial :2019: connection refused`). Apply Caddyfile,
+  key, or cert changes with **`sudo systemctl restart caddy`** (the cert-renew unit already does).
+- **Access model — bind `0.0.0.0` (serve-script default); the auth boundary is the router + Caddy,
   not the bind.** The server runs **`--network host`** (required for NCCL's transport — see "Why each
-  container flag") and binds **`0.0.0.0`** (`HOST=0.0.0.0` in `/etc/kimi-k26.env`), so the raw `:30000`
+  container flag") and binds **`0.0.0.0`** (default; `HOST` unset → `0.0.0.0`), so the raw `:30000`
   API answers on **every private interface** — loopback, LAN, tailnet, and the `docker0`/`lxdbr0`
   bridges. This host has **no public interface** (behind the LAN router; Caddy's `:443` serves a
   *Tailscale MagicDNS* name, not a public domain), so `0.0.0.0` exposes **nothing to the internet** —
@@ -236,7 +239,7 @@ run `scripts/assert-native.sh kimi-k26` (verdict NATIVE FP4 vs MARLIN/fallback; 
   |---|---|---|
   | loopback / LAN / tailnet → `<ip>:PORT` (raw) | **200, unauthenticated** | binds `0.0.0.0` — every private interface answers (verified 3ed 2026-06-13: 127.0.0.1 / LAN / tailnet all 200) |
   | docker0 / lxdbr0 (containers) → `:PORT` (raw) | **200, unauthenticated** | also covered by `0.0.0.0` — accepted exposure |
-  | Tailnet → Caddy `https://<magicdns>` `:443` + Bearer | **200, authenticated** | TLS + key gate; Caddy upstreams to `<lan-ip>:PORT` (still works — LAN IP is bound) |
+  | Tailnet → Caddy `https://<magicdns>` `:443` + Bearer | **200, authenticated** | TLS + key gate; Caddy upstreams over **loopback** `127.0.0.1:PORT` (DHCP-proof; the `0.0.0.0` bind covers loopback) |
   | Tailnet → Caddy `:443` *without* the key | **401** | Bearer gate (verified) |
   | Public internet → anything | **no path** | host has no public IP; only a router port-forward could create one |
 
@@ -246,11 +249,11 @@ run `scripts/assert-native.sh kimi-k26` (verdict NATIVE FP4 vs MARLIN/fallback; 
   - **Trade-offs accepted (user, 2026-06-13)** for `localhost`/tailnet convenience: (1) tailnet clients
     can hit `:30000` raw, **bypassing Caddy's Bearer** (and the tailnet ACL is allow-all → any tailnet
     device); (2) containers on `docker0`/`lxdbr0` get raw access.
-  - **Default vs this fleet:** the serve scripts still *default* to the structural **LAN-IP-only** bind
-    (`HOST` unset → `$LAN_IP`, fail-safe loopback — the older "tailnet/loopback refused, no firewall"
-    model); this fleet **overrides** to `HOST=0.0.0.0`. Revert = drop the `HOST=` line +
-    `systemctl restart kimi-k26`. (Caddy upstream + `verify.sh` still target `<LAN_IP>:PORT`, which
-    remains bound.)
+  - **Bind default = `0.0.0.0`** (serve scripts; `HOST` unset → `0.0.0.0`). For a locked-down posture
+    where only the Caddy proxy can reach the model, set `HOST=127.0.0.1` + `systemctl restart kimi-k26`
+    (Caddy still works — it upstreams over loopback either way). **Caddy upstream + `verify.sh` target
+    `127.0.0.1:PORT`** (loopback), so they're immune to DHCP LAN-IP changes — never the LAN IP, which
+    silently 502s an empty body when the lease moves (hit on both 3ed and 3ee, 2026-06-15).
   - **No host firewall** (`kimi-fw`/`kimi-netguard` retired) — do **not** add an INPUT DROP on `:30000`:
     it would also block the bench client (own netns, src docker bridge `172.17.x`).
   - The **bench client is the opposite**: it runs in its **own net namespace** (not host-net, since
@@ -261,9 +264,10 @@ run `scripts/assert-native.sh kimi-k26` (verdict NATIVE FP4 vs MARLIN/fallback; 
   - ⚠ Do **not** add a host INPUT firewall on PORT (the retired `kimi-fw`/`kimi-netguard`): unneeded
     (the bind already excludes the tailnet) and its catch-all `DROP` blocks the bench container
     (source = docker bridge `172.17.x`). `setup_proxy.sh` removes both.
-  Verify after any change — from another host: raw `http://<tailnet-ip>:PORT` → **000 (refused)**;
-  `http://<lan-ip>:PORT` → **200**; `https://<magicdns>/v1` + key → **200**; and `ss -tlnp` shows the
-  port bound **only on `<lan-ip>`** (never `0.0.0.0`, never `127.0.0.1`, never the tailnet IP).
+  Verify after any change: `ss -tlnp` shows `:PORT` bound on **`0.0.0.0`**; from another host raw
+  `http://<lan-ip>:PORT` and (tailnet) `http://<tailnet-ip>:PORT` → **200** (both raw, unauthenticated
+  — the accepted model); `https://<magicdns>/v1` without the key → **401**, with it → **200**. With
+  `HOST=127.0.0.1` instead, raw off-box → **000 (refused)** and only Caddy answers.
 - **Cross-host benchmark.** The LAN-open access model is what lets one host bench another's server
   directly (verified both ways 3ed↔3ee) — method, knobs, and numbers: the `llm-inference-benchmark`
   skill.

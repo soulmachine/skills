@@ -12,9 +12,13 @@
 set -euo pipefail
 
 UPSTREAM_PORT="${UPSTREAM_PORT:-30000}"
-# The model server runs --network host bound to the LAN IP (not loopback), so Caddy's upstream is the
-# LAN IP. Auto-detect the default-route source; override with UPSTREAM_HOST=<ip>.
-UPSTREAM_HOST="${UPSTREAM_HOST:-$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || echo 127.0.0.1)}"
+# Caddy's upstream is LOOPBACK, never the LAN IP. The model server runs --network host bound to
+# 0.0.0.0 (all interfaces — see serve scripts), so it answers on loopback too, and loopback is the one
+# address that never changes. Pinning the upstream to the LAN IP is a DHCP time-bomb: when the host's
+# lease moves (seen in practice: .177 -> .77), Caddy keeps dialing the dead old IP and every request
+# 502s with an empty body while localhost:30000 still works. Override UPSTREAM_HOST=<ip> only if the
+# engine is bound to a specific non-loopback address.
+UPSTREAM_HOST="${UPSTREAM_HOST:-127.0.0.1}"
 DOMAIN="${DOMAIN:-$(tailscale status --json | python3 -c 'import sys,json;print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')}"
 [ -n "$DOMAIN" ] || { echo "ERROR: could not determine Tailscale DNS name; set DOMAIN=" >&2; exit 1; }
 echo "domain=$DOMAIN  upstream=$UPSTREAM_HOST:$UPSTREAM_PORT"
@@ -63,14 +67,13 @@ sudo mkdir -p /etc/systemd/system/caddy.service.d
 printf '[Service]\nEnvironmentFile=/etc/caddy/kimi.env\n' | sudo tee /etc/systemd/system/caddy.service.d/override.conf >/dev/null
 
 # 6) access policy for :${UPSTREAM_PORT} is STRUCTURAL — NO host firewall.
-#    The serve scripts run the container WITHOUT --network host and publish the port only to
-#    127.0.0.1 (Caddy/verify) + the host LAN IP (-p 127.0.0.1:PORT:PORT -p <LAN_IP>:PORT:PORT).
-#    The tailnet IP is never published, so raw :${UPSTREAM_PORT} simply has no listener there
-#    (connection refused) — the tailnet must use the authenticated Caddy :443. LAN clients hit the
-#    LAN-IP listener directly (unauthenticated, trusted LAN). Nothing to install here.
+#    The serve scripts run the container with --network host and bind 0.0.0.0, so the raw port answers
+#    on every private interface (loopback, LAN, tailnet) UNAUTHENTICATED — the auth boundary is Caddy
+#    :443 (off-box clients) + the router (no public IP), not the bind. Caddy reaches the engine over
+#    loopback (above). LAN peers may hit <lan-ip>:${UPSTREAM_PORT} directly for cross-host benchmarking
+#    (trusted LAN). See REFERENCE 'Access model' for the full table + trade-offs.
 #    Retire any legacy host firewall (the old kimi-fw loopback-lock or the kimi-netguard INPUT
-#    allowlist) so it can't interfere with the published-port path (its catch-all DROP blocks
-#    container-side bench traffic; see REFERENCE 'Access model').
+#    allowlist) so it can't interfere (its catch-all DROP blocks container-side bench traffic).
 for legacy in kimi-fw kimi-netguard; do
   if [ -e "/etc/systemd/system/${legacy}.service" ] || [ -e "/usr/local/sbin/${legacy}.sh" ]; then
     sudo systemctl disable --now "${legacy}.service" 2>/dev/null || true

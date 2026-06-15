@@ -1,6 +1,6 @@
 ---
 name: deploy-kimi-k26-on-rtx-pro-6000
-description: Deploy and serve Moonshot Kimi-K2.6 (1T MoE, MLA, 256K context, vision) in a user-chosen quantization — official INT4 QAT (moonshotai/Kimi-K2.6, compressed-tensors→Marlin; vLLM or SGLang) or NVFP4 (nvidia/Kimi-K2.6-NVFP4, ModelOpt FP4; vLLM only — SGLang NVFP4 is NaN-broken on sm_120) — on a Linux server (verified Ubuntu 26.04) with 8× NVIDIA RTX PRO 6000 Blackwell Server Edition (96 GB, sm_120) GPUs. The quantization and the engine are both chosen at deploy time with a hardware-based recommendation. Runs an official-image Docker container via nvidia-container-toolkit CDI (--device nvidia.com/gpu=all --ipc=host --network host, bind-mounted weights; --network host is required for NCCL's GPU-to-GPU transport / IB-RoCE GPUDirect RDMA, and the server binds the host LAN IP only so the tailnet has no raw listener and reaches it only through the authenticated Caddy proxy — structural, no firewall), exposing an OpenAI-compatible API on :30000 behind one static systemd service `kimi-k26` (quant + engine selected via its EnvironmentFile — only one 595 GB variant fits the 8-GPU pool at a time). Use when deploying or serving Kimi-K2.6 INT4 or NVFP4 on RTX PRO 6000 Blackwell / sm_120 hardware (vLLM-in-Docker, or SGLang-in-Docker for INT4) — or troubleshooting NCCL /dev/shm "unhandled system error" in GPU containers, sm_120 "no kernel image" errors, a missing-`ninja` JIT build failure (-runtime image tag), FlashInfer CuTe-DSL MLIR ICE (llvm.mlir.global_dtors), a vLLM startup ValueError "larger than the available KV cache memory" (gpu-memory-utilization is NOT mem-fraction-static), an OOM→SIGQUIT crash from raising SGLang mem-fraction above 0.85, NVFP4 TRITON_MLA shared-memory OutOfResources at CUDA-graph capture (Required 102400 > limit 101376), NVFP4 "b12x fused MoE requires CUDA 13", NVFP4 offline trust_remote_code FileNotFoundError for a module under blobs/ (e.g. tool_declaration_ts.py), or a slow/hung MoE weight load.
+description: Deploy and serve Moonshot Kimi-K2.6 (1T MoE, MLA, 256K context, vision) in a user-chosen quantization — official INT4 QAT (moonshotai/Kimi-K2.6, compressed-tensors→Marlin; vLLM or SGLang) or NVFP4 (nvidia/Kimi-K2.6-NVFP4, ModelOpt FP4; vLLM only — SGLang NVFP4 is NaN-broken on sm_120) — on a Linux server (verified Ubuntu 26.04) with 8× NVIDIA RTX PRO 6000 Blackwell Server Edition (96 GB, sm_120) GPUs. The quantization and the engine are both chosen at deploy time with a hardware-based recommendation. Runs an official-image Docker container via nvidia-container-toolkit CDI (--device nvidia.com/gpu=all --ipc=host --network host, bind-mounted weights; --network host is required for NCCL's GPU-to-GPU transport / IB-RoCE GPUDirect RDMA, and the server binds 0.0.0.0 with off-box clients reaching it through an authenticated Caddy proxy that upstreams over loopback 127.0.0.1 — structural, no firewall), exposing an OpenAI-compatible API on :30000 behind one static systemd service `kimi-k26` (quant + engine selected via its EnvironmentFile — only one 595 GB variant fits the 8-GPU pool at a time). Use when deploying or serving Kimi-K2.6 INT4 or NVFP4 on RTX PRO 6000 Blackwell / sm_120 hardware (vLLM-in-Docker, or SGLang-in-Docker for INT4) — or troubleshooting NCCL /dev/shm "unhandled system error" in GPU containers, sm_120 "no kernel image" errors, a missing-`ninja` JIT build failure (-runtime image tag), FlashInfer CuTe-DSL MLIR ICE (llvm.mlir.global_dtors), a vLLM startup ValueError "larger than the available KV cache memory" (gpu-memory-utilization is NOT mem-fraction-static), an OOM→SIGQUIT crash from raising SGLang mem-fraction above 0.85, NVFP4 TRITON_MLA shared-memory OutOfResources at CUDA-graph capture (Required 102400 > limit 101376), NVFP4 "b12x fused MoE requires CUDA 13", NVFP4 offline trust_remote_code FileNotFoundError for a module under blobs/ (e.g. tool_declaration_ts.py), or a slow/hung MoE weight load.
 ---
 
 # Deploy Kimi-K2.6 (INT4 QAT or NVFP4) on 8× RTX PRO 6000 Blackwell Server Edition (sm_120)
@@ -125,7 +125,7 @@ step 6 as the go/no-go gate before fronting traffic.
    QUANT=nvfp4 IMAGE=kimi-k26-nvfp4-vllm:cu130-mla bash scripts/serve_docker_vllm.sh   # NVFP4 on vLLM
    ```
    Container: CDI GPUs, `--ipc=host --network host` (host-net required for NCCL transport / IB-RoCE
-   RDMA; server binds the LAN IP only → see REFERENCE "Access model"), weights `:ro`, memlock/nofile ulimits,
+   RDMA; server binds `0.0.0.0`, Caddy upstreams over loopback → see REFERENCE "Access model"), weights `:ro`, memlock/nofile ulimits,
    `HF_HUB_OFFLINE=1`. Load ~10–15 min from NVMe (~4–5 min warm cache); ready on "The server is fired up
    and ready to roll!" (SGLang) / "Application startup complete" (vLLM) — `docker logs -f kimi-k26`.
 
@@ -153,11 +153,14 @@ step 6 as the go/no-go gate before fronting traffic.
    ⚠ **Keep `/etc/kimi-k26.env` values bare** — systemd `EnvironmentFile` folds an inline `# comment`
    into the value (mangles `HF_HOME` → `LocalEntryNotFoundError`). fp8 KV: add `KV_CACHE_DTYPE` (vLLM
    `fp8`, SGLang `fp8_e4m3`) — verified, ~2× KV pool.
-   TLS + Bearer-API-key reverse proxy (engine-agnostic): `scripts/setup_proxy.sh`. Access policy is
-   **structural** — the `--network host` server binds the host **LAN IP only**, so the LAN reaches it
-   raw (unauthenticated) and the tailnet/loopback have no listener (tailnet → authenticated Caddy
-   `:443`, which upstreams to the LAN IP); **no host firewall** (setup_proxy retires any legacy
-   `kimi-fw`/`kimi-netguard`). See REFERENCE.md "Access model".
+   TLS + Bearer-API-key reverse proxy (engine-agnostic): `scripts/setup_proxy.sh`. Access model: the
+   `--network host` server binds **`0.0.0.0`**, so raw `:30000` answers unauthenticated on loopback/
+   LAN/tailnet — the auth boundary is **Caddy `:443`** (off-box clients) + the router (no public IP),
+   not the bind. **Caddy upstreams over loopback (`127.0.0.1`), never the LAN IP** — a LAN-IP upstream
+   is a DHCP time-bomb (lease moves → Caddy 502s with an empty body; cost us two outages). **No host
+   firewall** (setup_proxy retires any legacy `kimi-fw`/`kimi-netguard`). The Caddyfile sets `admin
+   off`, so apply proxy changes with `sudo systemctl restart caddy`, not `reload`. See REFERENCE.md
+   "Access model".
 
 ## Key facts (don't relearn these the hard way)
 - **`--ipc=host` is non-negotiable** for TP=8: NCCL needs shared memory and Docker's default 64 MB
@@ -193,6 +196,12 @@ step 6 as the go/no-go gate before fronting traffic.
   **leak GPU memory** that turns into a crash-loop. The serve scripts now wait (`WAIT_GPU_FREE`); if a
   loop already leaked, `nvidia-smi --query-compute-apps`, `kill -9` the orphan, confirm GPUs → 0, restart.
   To preserve the client contract across a migration, keep `MODEL_NAME` stable (it's the OpenAI `model` id).
+- **Caddy proxy: loopback upstream + `restart`, never `reload`.** `setup_proxy.sh` points Caddy at
+  `127.0.0.1:30000`, not the LAN IP — the engine binds `0.0.0.0` so loopback works, and it survives
+  DHCP LAN-IP changes. A LAN-IP upstream is a silent **502-empty-body** time-bomb when the host's lease
+  moves (`localhost:30000` keeps working, so it looks like the engine is fine). And the Caddyfile's
+  `admin off` disables the `:2019` admin API, so `systemctl reload caddy` fails (`dial :2019: connection
+  refused`) — apply Caddyfile/cert/key changes with **`sudo systemctl restart caddy`**.
 
 ## When startup crashes or hangs
 See **[REFERENCE.md](REFERENCE.md)**: per-engine Docker paths (image pinning, CDI, NCCL/shm, the
