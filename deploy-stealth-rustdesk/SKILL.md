@@ -14,9 +14,11 @@ Each surface needs a different mechanism — there is no single toggle:
 
 | Surface | Suppressed by |
 |---|---|
-| Dock icon | `LSUIElement=1` — already in stock `flutter/macos/Runner/Info.plist`; no action |
+| Dock icon | `LSUIElement=1` (stock) **plus** a `window_manager` patch (Step 3) — the CM/GUI window flips the app to a `.regular` activation policy on connect, which defeats `LSUIElement` and shows a Dock icon unless patched |
 | Tray / menu-bar icon | `assets/stealth.patch` → `src/tray.rs` (Step 2) |
 | CM connection panel | `assets/stealth.patch` → `src/ipc.rs` un-gates the feature, **then** config turns it on (Step 7) |
+
+A fourth, non-visual essential: the agent's `KeepAlive` must be forced to always-restart (Step 6), or a clean exit (e.g. closing a GUI window) leaves it down and remote access silently dies.
 
 Upstream restricts the hide-CM feature to Pro / custom-client builds (`is_custom_client()` is just `get_app_name() != "RustDesk"`), so on a vanilla from-source build no config value alone will hide the CM panel — the patch removes that gate.
 
@@ -57,18 +59,23 @@ The patch is the **only** code change — two small hunks:
 
 **Done when:** `grep -rc 'STEALTH BUILD PATCH' src/tray.rs src/ipc.rs` reports `1` for each file.
 
-## Step 3 — Generate the FRB bridge (do NOT skip)
+## Step 3 — `pub get`, patch window_manager (Dock fix), generate the FRB bridge
 
-`build.py` does not run flutter_rust_bridge codegen. Skip this and Step 4 fails with `file not found for module bridge_generated` + `EventToUI: IntoIntoDart` errors that look unrelated to the real cause.
+`flutter pub get` fetches the `window_manager` plugin, whose `setSkipTaskbar` calls `setActivationPolicy(.regular)` when a window shows — the one thing that defeats `LSUIElement` and puts a Dock icon up on connect. Patch it to stay `.accessory`. Then run the FRB codegen — `build.py` does **not** run it, and skipping it makes Step 4 fail with `file not found for module bridge_generated` + `EventToUI: IntoIntoDart` (errors that look unrelated to the real cause).
 
 ```bash
 cd "$BUILD/rustdesk/flutter" && flutter pub get && cd ..
+# Dock-icon fix (pub-cache path varies by pinned ref, so find it):
+WM=$(find ~/.pub-cache -path '*window_manager*/macos/Classes/WindowManager.swift' | head -1)
+sed -i '' 's|setActivationPolicy(isSkipTaskbar ? .accessory : .regular)|setActivationPolicy(.accessory) // STEALTH: never take a Dock icon|' "$WM"
 flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs \
   --dart-output ./flutter/lib/generated_bridge.dart \
   --c-output ./flutter/macos/Runner/bridge_generated.h
 ```
 
-**Done when:** `src/bridge_generated.rs` exists (~5k lines). Its absence is the single most common reason the build "mysteriously" fails at Step 4 — verify the file before moving on.
+The window_manager patch lives in pub-cache, not the RustDesk repo, so it is **not** in `assets/stealth.patch` — re-apply it here on every fresh clone / `pub get`.
+
+**Done when:** `src/bridge_generated.rs` exists (~5k lines) **and** `grep -c '\.regular' "$WM"` is `0`. Missing `bridge_generated.rs` is the most common reason the build "mysteriously" fails at Step 4 — verify before moving on.
 
 ## Step 4 — Build
 
@@ -104,21 +111,27 @@ S="$BUILD/rustdesk/src/platform/privileges_scripts"
 sudo cp "$S/daemon.plist" /Library/LaunchDaemons/com.carriez.RustDesk_service.plist
 sudo cp "$S/agent.plist"  /Library/LaunchAgents/com.carriez.RustDesk_server.plist
 sudo chown root:wheel /Library/LaunchDaemons/com.carriez.RustDesk_service.plist /Library/LaunchAgents/com.carriez.RustDesk_server.plist
+# Agent resilience: the stock agent KeepAlive restarts only on FAILURE (a dict with
+# SuccessfulExit=false), so a *clean* exit (e.g. when a GUI window is closed) leaves the
+# agent down and remote access silently dies. Force always-restart so it self-heals.
+sudo /usr/libexec/PlistBuddy -c "Delete :KeepAlive" -c "Add :KeepAlive bool true" /Library/LaunchAgents/com.carriez.RustDesk_server.plist
 sudo launchctl load -w /Library/LaunchDaemons/com.carriez.RustDesk_service.plist
 launchctl bootstrap gui/$(id -u) /Library/LaunchAgents/com.carriez.RustDesk_server.plist
 ```
 
-The **agent** (`RustDesk --server`, runs in the Aqua/LoginWindow session) is what makes keyboard injection work — this is the whole point of not being a daemon-only install.
+The **agent** (`RustDesk --server`, runs in the Aqua/LoginWindow session) is what makes screen capture + keyboard injection work — the whole point of not being a daemon-only install. With stock `KeepAlive` it can exit cleanly and never restart, so remote access only works while some window is open; the `KeepAlive=true` edit above makes it always-on and window-independent.
 
-**Done when:** `launchctl print gui/$(id -u)/com.carriez.RustDesk_server` and `sudo launchctl print system/com.carriez.RustDesk_service` both show `state = running`.
+**Done when:** both labels show `state = running`, and the agent stays up on its own — kill it (`pkill -f 'MacOS/RustDesk --server'`), wait 2s, and confirm launchd respawned it.
 
 ## Step 7 — Password, identity sync, hide the CM panel
 
 Order matters — the password IPC needs the service running; the config edits need it stopped.
 
 ```bash
-# 1. permanent password (needs root + installed):
-sudo /Applications/RustDesk.app/Contents/MacOS/RustDesk --password 'YOUR_STRONG_PASSWORD'   # -> "Done!"
+# 1. permanent password (needs root + installed) — RETRY until "Done!": the service IPC
+#    socket may not be ready right after start, and "Connection refused" means not-ready,
+#    NOT failure. This must succeed here (see verification-method warning below).
+until sudo /Applications/RustDesk.app/Contents/MacOS/RustDesk --password 'YOUR_STRONG_PASSWORD' 2>&1 | grep -q '^Done'; do sleep 1; done
 # 2. stop both so edits are not overwritten:
 launchctl bootout gui/$(id -u)/com.carriez.RustDesk_server; sudo launchctl bootout system/com.carriez.RustDesk_service
 # 3. sync identity+password daemon(root) -> agent(user) so enc_id/key match:
@@ -136,7 +149,9 @@ launchctl bootstrap gui/$(id -u) /Library/LaunchAgents/com.carriez.RustDesk_serv
 
 `hide_cm()` requires all three: `approve-mode=password` **and** `verification-method=use-permanent-password` **and** `allow-hide-cm=Y` — and they only take effect because Step 2's `ipc.rs` hunk removed the Pro/custom-client gate; on a stock build these are silently ignored. The permanent password is stored (hashed) in the `password` field of `RustDesk.toml`, not RustDesk2.toml.
 
-**Done when:** root and user `RustDesk.toml` have the same `enc_id`, and both `RustDesk2.toml` carry the three options.
+**Critical ordering:** a valid permanent password must exist (step 1 succeeded) *before* the service restarts with `verification-method=use-permanent-password`. If it starts "permanent-only but no password", RustDesk normalizes `verification-method` back to `use-both-passwords`, which makes `hide_cm()` false and the CM panel returns. If after restart `verification-method` reads `use-both-passwords`, the password wasn't set — set it, then `sed -i '' "s/^verification-method = .*/verification-method = 'use-permanent-password'/"` both `RustDesk2.toml` and restart.
+
+**Done when:** root and user `RustDesk.toml` share the same `enc_id`; both `RustDesk2.toml` carry the three options; and `verification-method` still reads `use-permanent-password` ~5s after restart (did not revert).
 
 ## Step 8 — Grant permissions (manual, unavoidable)
 
@@ -154,11 +169,13 @@ lists `kTCCServiceScreenCapture`, `kTCCServiceAccessibility`, `kTCCServiceListen
 
 ## Step 9 — Verify the payoff (all must hold)
 
-- **Stealth:** `lsappinfo list | grep -iA2 rustdesk` shows the `--server` process as `type="UIElement"` (no Dock icon); the menu bar has no RustDesk item; connecting shows no floating panel.
-- **Function (from a second machine):** connect to the ID (`/Applications/RustDesk.app/Contents/MacOS/RustDesk --get-id`) with the password → screen appears, mouse works, and **keyboard works**.
+Test with **no RustDesk window open** — a correct deployment runs only `service` + `--server`.
+
+- **Stealth:** menu bar has no RustDesk item; **no Dock icon appears when a session connects** (the window_manager fix — verify *visually* over the screen session; `lsappinfo` reports `type="UIElement"` even while a Dock icon is showing, so it is NOT a reliable check here); no floating CM panel during a session.
+- **Function (from a second machine, host has no window open):** connect to the ID (`.../RustDesk --get-id`) with the password → screen appears, mouse works, and **keyboard works**. That it works with nothing open confirms the agent is self-standing.
 - **Persistence:** reboot with nobody logged in → reconnect succeeds.
 
-Keyboard working is the criterion that proves the whole approach — if it fails you are in the **daemon trap** (the agent is not running in the user session). See `reference/recovery.md`.
+Keyboard working proves the approach — if it fails you are in the **daemon trap** (agent not in the user session). If it works *only while a window is open*, the agent's `KeepAlive` isn't `true` (Step 6). See `reference/recovery.md`.
 
 ## Maintenance & rollback
 
