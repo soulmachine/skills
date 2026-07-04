@@ -15,11 +15,11 @@ Install a **stealth-patched, signed `RustDesk.app`** as an always-on service: un
 
 A non-visual essential of its own: the agent's `KeepAlive` must be forced to always-restart (Step 1), or a clean exit (e.g. closing a GUI window) leaves it down and remote access silently dies.
 
-From `build-stealth-rustdesk`'s hand-off you staged three things on this Mac: the signed `RustDesk.app` and the two launchd plists (they are **not** inside the .app bundle). Point these at where you staged them:
+From `build-stealth-rustdesk`'s hand-off you staged three things on this Mac: the signed `RustDesk.app` and the two launchd plists (they are **not** inside the .app bundle). The defaults below match the `~/.stealth-rustdesk` layout that skill stages — point them at wherever you copied the folder:
 
 ```bash
-APP=~/rustdesk-stealth/RustDesk.app                 # the signed artifact you copied over
-PLISTS=~/rustdesk-stealth/privileges_scripts        # holds daemon.plist + agent.plist
+APP=~/.stealth-rustdesk/RustDesk.app                 # the signed artifact you copied over
+PLISTS=~/.stealth-rustdesk/privileges_scripts        # holds daemon.plist + agent.plist
 ```
 
 ## Step 1 — Install as LaunchAgent + daemon
@@ -86,7 +86,7 @@ sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
 ```
 lists `kTCCServiceScreenCapture`, `kTCCServiceAccessibility`, `kTCCServiceListenEvent` all `= 2`.
 
-**Rebuild redeploys (ad-hoc signing):** the old grants are bound to the previous signature — they still read `= 2` but silently fail (`Connected, waiting for image`). `sudo tccutil reset ScreenCapture com.carriez.rustdesk` (+ `Accessibility`, `ListenEvent`), restart both labels, re-grant. A **stable signing identity** at build time avoids this entirely — see `build-stealth-rustdesk` → "Stable signing identity".
+**Rebuild redeploys (ad-hoc signing):** the old grants are bound to the previous signature — they still read `= 2` but silently fail (`Connected, waiting for image`). `sudo tccutil reset ScreenCapture com.carriez.rustdesk` (+ `Accessibility`, `ListenEvent`), restart both labels, re-grant. A **stable signing identity** at build time avoids this entirely — see `build-stealth-rustdesk` → "Stable signing identity". **SIP-off shortcut:** if SIP is disabled on the target, instead of re-granting you can rewrite the grant's stored `csreq` from the exact cdhash to `identifier "com.carriez.rustdesk"` once — it then matches *any* ad-hoc rebuild by bundle id, so grants survive without a re-grant (weaker check; commands in `REFERENCE.md` → "Make ad-hoc TCC grants survive rebuilds").
 
 ## Step 4 — Verify the payoff (all must hold)
 

