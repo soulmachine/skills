@@ -157,6 +157,15 @@ description: Attach popular brand prefixes/suffixes to a seed word and check eac
 | easy- | frictionless (EasyJet) |
 | smart- | intelligent (SmartThings) |
 
+### AI & agents
+
+| Affix | Feel · exemplars |
+|---|---|
+| ai- | AI-native signal (AI21) |
+| chat- | conversational (ChatGPT) |
+| agent- | autonomous doer (Agentforce) |
+| agentic- | agent-native workflows (agentic AI wave) |
+
 ## Rules
 
 - **Live RDAP only** — never claim availability from cached knowledge or prior turns of this conversation. Domains get registered between checks.
