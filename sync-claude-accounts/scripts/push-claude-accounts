@@ -1,0 +1,67 @@
+#!/bin/bash
+# push-claude-accounts — upload a Claude Code accounts export to one or more macOS
+# machines, install the per-machine sync script if missing, and run it.
+#
+# Usage: push-claude-accounts <claude-accounts.json> <host> [host...]
+#   host may be a hostname, an SSH config alias, an IP, or 127.0.0.1/localhost/local
+#   (the local machine is handled with cp + direct execution, no SSH).
+#
+# Env:
+#   FORCE_INSTALL=1        reinstall the per-machine script even if it already exists
+#   KEEP_ACCOUNTS_FILE=1   leave the credentials file on each machine
+set -uo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AGENT="$SELF_DIR/sync-claude-accounts"
+REMOTE_FILE="/tmp/claude-accounts.json"
+REMOTE_BIN=".local/bin/sync-claude-accounts"   # relative to remote $HOME
+
+[ $# -ge 2 ] || { echo "usage: push-claude-accounts <claude-accounts.json> <host> [host...]" >&2; exit 1; }
+
+SRC="$1"; shift
+[ -f "$SRC" ] || { echo "accounts file not found: $SRC" >&2; exit 1; }
+[ -f "$AGENT" ] || { echo "missing helper script: $AGENT" >&2; exit 1; }
+
+# Reject an obviously wrong file early rather than on all N machines.
+/usr/bin/python3 - "$SRC" <<'PY' || exit 1
+import json,sys
+try:
+    d=json.load(open(sys.argv[1]))
+    assert isinstance(d.get("accounts"),list) and d["accounts"], "no accounts[] in export"
+    if d.get("encrypted") is True: sys.exit("export is encrypted — decrypt it first")
+except Exception as e:
+    sys.exit(f"not a valid claude-swap export: {e}")
+PY
+
+is_local() {
+    case "$1" in
+        127.0.0.1|localhost|local|::1) return 0 ;;
+    esac
+    [ "$1" = "$(hostname)" ] || [ "$1" = "$(hostname -s)" ]
+}
+
+ok=0; fail=0; failed_hosts=""
+for h in "$@"; do
+    echo "===== $h ====="
+    if is_local "$h"; then
+        install -d "$HOME/.local/bin" || { fail=$((fail+1)); failed_hosts="$failed_hosts $h"; continue; }
+        if [ ! -x "$HOME/.local/bin/sync-claude-accounts" ] || [ "${FORCE_INSTALL:-0}" = "1" ]; then
+            install -m 755 "$AGENT" "$HOME/.local/bin/sync-claude-accounts" && echo "installed sync script"
+        fi
+        install -m 600 "$SRC" "$REMOTE_FILE" || { fail=$((fail+1)); failed_hosts="$failed_hosts $h"; continue; }
+        KEEP_ACCOUNTS_FILE="${KEEP_ACCOUNTS_FILE:-0}" "$HOME/.local/bin/sync-claude-accounts" "$REMOTE_FILE"
+    else
+        ssh -o ConnectTimeout=15 "$h" 'mkdir -p ~/.local/bin' || { echo "unreachable"; fail=$((fail+1)); failed_hosts="$failed_hosts $h"; continue; }
+        if ! ssh "$h" "test -x ~/$REMOTE_BIN" || [ "${FORCE_INSTALL:-0}" = "1" ]; then
+            scp -q "$AGENT" "$h:$REMOTE_BIN" && ssh "$h" "chmod 755 ~/$REMOTE_BIN" && echo "installed sync script"
+        fi
+        # /tmp is world-readable on macOS — tighten the mode before it is parsed.
+        scp -q "$SRC" "$h:$REMOTE_FILE" && ssh "$h" "chmod 600 $REMOTE_FILE" || { fail=$((fail+1)); failed_hosts="$failed_hosts $h"; continue; }
+        ssh "$h" "KEEP_ACCOUNTS_FILE=${KEEP_ACCOUNTS_FILE:-0} ~/$REMOTE_BIN $REMOTE_FILE"
+    fi
+    if [ $? -eq 0 ]; then ok=$((ok+1)); else fail=$((fail+1)); failed_hosts="$failed_hosts $h"; fi
+done
+
+echo "====="
+echo "done: $ok ok, $fail failed${failed_hosts:+ —$failed_hosts}"
+[ "$fail" -eq 0 ]

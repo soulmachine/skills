@@ -1,0 +1,111 @@
+#!/bin/bash
+# sync-claude-accounts — import a Claude Code accounts export into claude-swap,
+# then register every managed account with cux.
+#
+# Usage: sync-claude-accounts [/path/to/claude-accounts.json]
+# Default input: /tmp/claude-accounts.json
+#
+# Env:
+#   KEEP_ACCOUNTS_FILE=1   do not delete the credentials file when done
+#
+# Exit: 0 ok | 1 preflight/import failure | 2 keychain locked | 3 one or more accounts failed
+set -uo pipefail
+
+ACCOUNTS_FILE="${1:-/tmp/claude-accounts.json}"
+KEEP="${KEEP_ACCOUNTS_FILE:-0}"
+
+# cswap installs to ~/.local/bin; cux lands in the Homebrew prefix, which differs
+# between Apple Silicon (/opt/homebrew) and Intel (/usr/local).
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+log()  { printf '%s\n' "$*"; }
+die()  { printf 'sync-claude-accounts: %s\n' "$*" >&2; exit "${2:-1}"; }
+
+# ---------- preflight ----------
+[ -f "$ACCOUNTS_FILE" ] || die "accounts file not found: $ACCOUNTS_FILE"
+
+# Only ever delete our own temp copy. Deleting a user-supplied path such as
+# ~/Downloads/claude-accounts.json would destroy their source export. The trap is
+# armed here, before preflight, so a failed run cannot leave credentials behind.
+case "$ACCOUNTS_FILE" in
+    /tmp/*|/private/tmp/*) TEMP_COPY=1 ;;
+    *)                     TEMP_COPY=0 ;;
+esac
+cleanup() {
+    [ "$KEEP" = "1" ] && return 0
+    [ "$TEMP_COPY" = "1" ] && rm -f "$ACCOUNTS_FILE"
+    return 0
+}
+trap cleanup EXIT
+
+command -v cswap >/dev/null 2>&1 || die "cswap not found — install with: uv tool install claude-swap"
+command -v cux   >/dev/null 2>&1 || die "cux not found — install with: npm install -g @inulute/cux"
+# cux's npm postinstall downloads a native binary and SOFT-FAILS with exit 0, so a
+# broken install looks successful until the shim is actually run.
+cux version >/dev/null 2>&1 || die "cux is installed but its binary is missing — npm install -g @inulute/cux --force"
+
+# ---------- import ----------
+# Never pipe this: a pipeline's exit status comes from the last command, which
+# would silently mask "import file not found" and let the run continue.
+cswap import "$ACCOUNTS_FILE" || die "cswap import failed"
+
+# ---------- keychain ----------
+# Claude Code keeps its OAuth credentials in the macOS login keychain, which is
+# LOCKED in SSH sessions. cux add reads it directly and dies with `security ...
+# exit 36` (errSecInteractionNotAllowed); it does not fall back to the plaintext
+# ~/.claude/.credentials.json. cswap degrades gracefully, so import works either way.
+kc_ok() { security find-generic-password -s "Claude Code-credentials" -w >/dev/null 2>&1; }
+if ! kc_ok && [ -f "$HOME/.claude/unlock-keychain.sh" ]; then
+    bash "$HOME/.claude/unlock-keychain.sh" >/dev/null 2>&1
+fi
+kc_ok || die "login keychain is locked — cux add cannot read credentials.
+  Fix: install ~/.claude/unlock-keychain.sh (see the ssh-keychain-unlock skill),
+  or run this from a GUI session on that machine.
+  Accounts were still imported into cswap." 2
+
+# ---------- discover every managed account ----------
+J="$(cswap list --json)" || die "cswap list --json failed"
+
+emails() {
+    if command -v jq >/dev/null 2>&1; then
+        jq -r '.accounts[].email'
+    else
+        /usr/bin/python3 -c 'import json,sys;[print(a["email"]) for a in json.load(sys.stdin)["accounts"]]'
+    fi
+}
+active_slot() {
+    if command -v jq >/dev/null 2>&1; then
+        jq -r '.activeAccountNumber'
+    else
+        /usr/bin/python3 -c 'import json,sys;print(json.load(sys.stdin).get("activeAccountNumber",""))'
+    fi
+}
+
+ORIG="$(printf '%s' "$J" | active_slot)"
+LIST="$(printf '%s' "$J" | emails)"
+[ -n "$LIST" ] || die "no accounts found after import"
+
+# ---------- register each account with cux ----------
+# cux add only ever captures the CURRENTLY LOGGED-IN account, so each one has to be
+# made live first. --force matters: switching to an already-active account otherwise
+# prints "Already on Account-N" and declines to rewrite the live login from the
+# stored backup, so cux add would silently capture stale credentials.
+rc=0
+for e in $LIST; do
+    if ! cswap switch "$e" --force >/dev/null 2>&1; then
+        log "  FAILED (switch): $e"; rc=3; continue
+    fi
+    out="$(cux add </dev/null 2>&1)"
+    if [ $? -eq 0 ]; then
+        log "  $e -> $(printf '%s' "$out" | tail -1)"
+    else
+        log "  FAILED (cux add): $e -> $(printf '%s' "$out" | tail -1)"; rc=3
+    fi
+done
+
+# ---------- restore whichever account was active before ----------
+if [ -n "$ORIG" ] && [ "$ORIG" != "null" ]; then
+    cswap switch "$ORIG" --force >/dev/null 2>&1 && log "restored active slot: $ORIG"
+fi
+
+exit $rc
