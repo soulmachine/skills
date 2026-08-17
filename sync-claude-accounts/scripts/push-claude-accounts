@@ -6,9 +6,11 @@
 #   host may be a hostname, an SSH config alias, an IP, or 127.0.0.1/localhost/local
 #   (the local machine is handled with cp + direct execution, no SSH).
 #
-# Env:
+# Env (all forwarded to the per-machine script):
 #   FORCE_INSTALL=1        reinstall the per-machine script even if it already exists
 #   KEEP_ACCOUNTS_FILE=1   leave the credentials file on each machine
+#   IMPORT_FORCE=1         cswap import --force — make this export authoritative on receivers
+#   SKIP_IF_CUX_BUSY=1     receiver exits 5 (deferred) instead of swapping a live cux session
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,7 +51,10 @@ for h in "$@"; do
             install -m 755 "$AGENT" "$HOME/.local/bin/sync-claude-accounts" && echo "installed sync script"
         fi
         install -m 600 "$SRC" "$REMOTE_FILE" || { fail=$((fail+1)); failed_hosts="$failed_hosts $h"; continue; }
-        KEEP_ACCOUNTS_FILE="${KEEP_ACCOUNTS_FILE:-0}" "$HOME/.local/bin/sync-claude-accounts" "$REMOTE_FILE"
+        KEEP_ACCOUNTS_FILE="${KEEP_ACCOUNTS_FILE:-0}" \
+        IMPORT_FORCE="${IMPORT_FORCE:-0}" \
+        SKIP_IF_CUX_BUSY="${SKIP_IF_CUX_BUSY:-0}" \
+            "$HOME/.local/bin/sync-claude-accounts" "$REMOTE_FILE"
     else
         ssh -o ConnectTimeout=15 "$h" 'mkdir -p ~/.local/bin' || { echo "unreachable"; fail=$((fail+1)); failed_hosts="$failed_hosts $h"; continue; }
         if ! ssh "$h" "test -x ~/$REMOTE_BIN" || [ "${FORCE_INSTALL:-0}" = "1" ]; then
@@ -57,7 +62,7 @@ for h in "$@"; do
         fi
         # /tmp is world-readable on macOS — tighten the mode before it is parsed.
         scp -q "$SRC" "$h:$REMOTE_FILE" && ssh "$h" "chmod 600 $REMOTE_FILE" || { fail=$((fail+1)); failed_hosts="$failed_hosts $h"; continue; }
-        ssh "$h" "KEEP_ACCOUNTS_FILE=${KEEP_ACCOUNTS_FILE:-0} ~/$REMOTE_BIN $REMOTE_FILE"
+        ssh "$h" "KEEP_ACCOUNTS_FILE=${KEEP_ACCOUNTS_FILE:-0} IMPORT_FORCE=${IMPORT_FORCE:-0} SKIP_IF_CUX_BUSY=${SKIP_IF_CUX_BUSY:-0} ~/$REMOTE_BIN $REMOTE_FILE"
     fi
     if [ $? -eq 0 ]; then ok=$((ok+1)); else fail=$((fail+1)); failed_hosts="$failed_hosts $h"; fi
 done
