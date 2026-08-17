@@ -7,12 +7,23 @@
 #
 # Env:
 #   KEEP_ACCOUNTS_FILE=1   do not delete the credentials file when done
+#   IMPORT_FORCE=1         cswap import --force: make the export authoritative rather than
+#                          skipping accounts that already exist. Required for the recurring
+#                          single-refresh-authority push, where the whole point is to
+#                          overwrite each receiver's tokens with the authority's fresher ones.
+#   SKIP_IF_CUX_BUSY=1     exit 5 without touching anything when a cux session is running.
+#                          Registering an account requires making it live, which briefly
+#                          swaps the login out from under a supervised session.
 #
-# Exit: 0 ok | 1 preflight/import failure | 2 keychain locked | 3 one or more accounts failed
+# Exit: 0 ok | 1 preflight/import failure | 2 keychain locked | 3 one or more accounts
+#       failed | 4 imported, but the live login is a setup-token so cux cannot register it
+#       | 5 skipped, a cux session was running (SKIP_IF_CUX_BUSY=1)
 set -uo pipefail
 
 ACCOUNTS_FILE="${1:-/tmp/claude-accounts.json}"
 KEEP="${KEEP_ACCOUNTS_FILE:-0}"
+IMPORT_FORCE="${IMPORT_FORCE:-0}"
+SKIP_IF_CUX_BUSY="${SKIP_IF_CUX_BUSY:-0}"
 
 # cswap installs to ~/.local/bin; cux lands in the Homebrew prefix, which differs
 # between Apple Silicon (/opt/homebrew) and Intel (/usr/local).
@@ -44,33 +55,121 @@ command -v cux   >/dev/null 2>&1 || die "cux not found — install with: npm ins
 # broken install looks successful until the shim is actually run.
 cux version >/dev/null 2>&1 || die "cux is installed but its binary is missing — npm install -g @inulute/cux --force"
 
+# ---------- defer to a running cux session ----------
+# Registering an account means making it live (`cux add` captures only the current login),
+# which swaps the login out from under any cux-supervised session mid-flight. On a recurring
+# push it is better to skip this tick and catch the machine on the next one. Exit 5 is
+# distinct from a failure so the caller can tell "deferred" from "broken". The caller is
+# responsible for forcing a run when the token is close enough to expiry that skipping
+# again would be worse than a momentary swap.
+if [ "$SKIP_IF_CUX_BUSY" = "1" ]; then
+    # `cux sessions` prints "No cux sessions are running." when idle, and one
+    # "[<pid>] <dir>" header per live session otherwise. Match the header shape
+    # rather than "any digit" — the idle line and the banner both contain digits.
+    if cux sessions 2>/dev/null | sed $'s/\033\[[0-9;:]*m//g' | grep -qE '^\[[0-9]+\]'; then
+        log "cux session active — skipping this tick (SKIP_IF_CUX_BUSY=1)"
+        exit 5
+    fi
+fi
+
+# ---------- classify the export ----------
+# A setup-token account carries an accessToken but NO refreshToken. Those import into
+# cswap fine, but cux cannot register them (see the keychain section below), so say so
+# up front instead of failing halfway through a fleet rollout.
+SETUP_ONLY="$(/usr/bin/python3 - "$ACCOUNTS_FILE" <<'PY'
+import json,sys
+try: accts=json.load(open(sys.argv[1]))["accounts"]
+except Exception: sys.exit(0)
+def oauth(a): return (a.get("credentials") or {}).get("claudeAiOauth") or {}
+if accts and all(not oauth(a).get("refreshToken") for a in accts): print("yes")
+PY
+)"
+if [ "$SETUP_ONLY" = "yes" ]; then
+    log "NOTE: every account in this export is a setup-token (no refreshToken)."
+    log "      cswap can import and switch to these, but cux CANNOT register them —"
+    log "      it reads the login keychain, which setup-token logins never populate."
+    log "      Expect this run to import successfully and then stop at the cux step."
+fi
+
 # ---------- import ----------
 # Never pipe this: a pipeline's exit status comes from the last command, which
 # would silently mask "import file not found" and let the run continue.
-cswap import "$ACCOUNTS_FILE" || die "cswap import failed"
+# The PATH MUST COME FIRST. cswap's argparse maps the `import` verb onto `--import`, which
+# takes the path as its argument, so `cswap import --force <file>` fails with
+# "argument --import: expected one argument". Correct form is `cswap import <file> --force`.
+if [ "$IMPORT_FORCE" = "1" ]; then
+    cswap import "$ACCOUNTS_FILE" --force || die "cswap import --force failed"
+else
+    cswap import "$ACCOUNTS_FILE" || die "cswap import failed"
+fi
 
 # ---------- keychain ----------
-# Claude Code keeps its OAuth credentials in the macOS login keychain, which is
-# LOCKED in SSH sessions. cux add reads it directly and dies with `security ...
-# exit 36` (errSecInteractionNotAllowed); it does not fall back to the plaintext
+# Claude Code keeps its OAuth credentials in the macOS login keychain, which is LOCKED
+# in SSH sessions. cux add reads it directly and does not fall back to the plaintext
 # ~/.claude/.credentials.json. cswap degrades gracefully, so import works either way.
-kc_ok() { security find-generic-password -s "Claude Code-credentials" -w >/dev/null 2>&1; }
-if ! kc_ok && [ -f "$HOME/.claude/unlock-keychain.sh" ]; then
+#
+# The `security` exit code distinguishes two states that need OPPOSITE responses, and
+# conflating them reports a setup-token login as a phantom lock failure:
+#   36 errSecInteractionNotAllowed — keychain locked. Unlock and retry.
+#   44 errSecItemNotFound          — no item at all. The live login is NOT keychain
+#                                    backed (a setup-token writes only credentials.json),
+#                                    so unlocking changes nothing and cux add cannot
+#                                    capture it: "no active Claude Code login found".
+# The keychain also RE-LOCKS between SSH sessions, so the unlock has to happen in the
+# same invocation as the command that needs it — which is why it lives here, not in a
+# separate ssh call from the driver.
+kc_probe() { security find-generic-password -s "Claude Code-credentials" -w >/dev/null 2>&1; }
+kc_probe; kc_rc=$?
+if [ "$kc_rc" -ne 0 ] && [ -f "$HOME/.claude/unlock-keychain.sh" ]; then
     bash "$HOME/.claude/unlock-keychain.sh" >/dev/null 2>&1
+    kc_probe; kc_rc=$?
 fi
-kc_ok || die "login keychain is locked — cux add cannot read credentials.
+# rc=44 means "no keychain item" — NOT "setup-token". A full OAuth login can end up outside
+# the keychain: cswap degrades to writing ~/.claude/.credentials.json whenever the keychain is
+# unavailable mid-operation, and the credential then stays in the file, invisible to cux.
+# Observed 2026-08-17 on a headless Mac Studio — refreshToken present and the complete scope
+# set including user:profile, living in the file with no keychain item. Re-activating the live
+# slot with the keychain unlocked makes cswap write it back properly, so try that before
+# giving up; only a credential that is still absent afterwards is genuinely unusable by cux.
+if [ "$kc_rc" = "44" ]; then
+    act="$(cswap list --json 2>/dev/null | /usr/bin/python3 -c \
+        'import json,sys;print(json.load(sys.stdin).get("activeAccountNumber") or "")' 2>/dev/null)"
+    if [ -n "$act" ]; then
+        cswap switch "$act" --force </dev/null >/dev/null 2>&1
+        kc_probe; kc_rc=$?
+        [ "$kc_rc" = "0" ] && log "repaired: cswap had degraded to file-only storage; keychain credential restored"
+    fi
+fi
+
+case "$kc_rc" in
+    0)  ;;
+    44) die "the live Claude login is still not in the keychain after re-activating the slot
+  (security rc=44, errSecItemNotFound). cux reads solely the keychain, so \`cux add\` will
+  answer 'no active Claude Code login found' (and exit 0 while doing it).
+  Two causes look identical here: a setup-token login (which cux can never manage — see
+  'cux cannot hold setup-tokens' in SKILL.md), or an OAuth login stuck in
+  ~/.claude/.credentials.json. Tell them apart with the credential's own shape:
+  refreshToken present and user:profile in scopes means OAuth, and the keychain write is
+  what failed. Accounts were still imported into cswap." 4 ;;
+    *)  die "login keychain is locked (security rc=$kc_rc) — cux add cannot read credentials.
   Fix: install ~/.claude/unlock-keychain.sh (see the ssh-keychain-unlock skill),
   or run this from a GUI session on that machine.
-  Accounts were still imported into cswap." 2
+  Accounts were still imported into cswap." 2 ;;
+esac
 
 # ---------- discover every managed account ----------
 J="$(cswap list --json)" || die "cswap list --json failed"
 
-emails() {
+# Emit "<slot> <email>" per line. The SLOT is what we switch on: an export whose
+# accounts carry a different organizationUuid than the machine's existing slots is
+# imported as a NEW slot rather than matched, so the same email can legitimately
+# occupy two slots. `cswap switch <email>` then goes interactive ("Multiple accounts
+# found for ...: Enter account number") and, with stdin closed, dies on EOF.
+slots() {
     if command -v jq >/dev/null 2>&1; then
-        jq -r '.accounts[].email'
+        jq -r '.accounts[] | "\(.number) \(.email)"'
     else
-        /usr/bin/python3 -c 'import json,sys;[print(a["email"]) for a in json.load(sys.stdin)["accounts"]]'
+        /usr/bin/python3 -c 'import json,sys;[print(a["number"],a["email"]) for a in json.load(sys.stdin)["accounts"]]'
     fi
 }
 active_slot() {
@@ -82,30 +181,82 @@ active_slot() {
 }
 
 ORIG="$(printf '%s' "$J" | active_slot)"
-LIST="$(printf '%s' "$J" | emails)"
+LIST="$(printf '%s' "$J" | slots)"
 [ -n "$LIST" ] || die "no accounts found after import"
+
+# Existing cux placement: "<cux-slot> <email> [alias]" per line, keyed on the LOWEST
+# slot per email. A bare `cux add` appends a NEW slot whenever it cannot match the live
+# login to an existing entry, so on a recurring push it grows cux without bound (this is
+# exactly how mac-mini-m2 ended up with four entries for two accounts). Re-registering
+# into the SAME slot with the SAME alias makes each cycle idempotent. Slot order and
+# alias strings differ per machine ('arch-dev' vs 'arch-dev-techarchaut'), so this is
+# always read from the machine's own state, never assumed.
+cux_placement() {
+    /usr/bin/python3 - "$HOME/.cux/state.json" <<'PY'
+import json,sys
+try: d=json.load(open(sys.argv[1]))
+except Exception: sys.exit(0)
+best={}
+def walk(o):
+    if isinstance(o,dict):
+        if "email" in o and "slot" in o:
+            e,s=o["email"],int(o["slot"])
+            if e not in best or s<best[e][0]: best[e]=(s,o.get("alias") or "")
+        for v in o.values(): walk(v)
+    elif isinstance(o,list):
+        for v in o: walk(v)
+walk(d)
+for e,(s,a) in best.items(): print(s,e,a)
+PY
+}
+PLACEMENT="$(cux_placement)"
 
 # ---------- register each account with cux ----------
 # cux add only ever captures the CURRENTLY LOGGED-IN account, so each one has to be
 # made live first. --force matters: switching to an already-active account otherwise
 # prints "Already on Account-N" and declines to rewrite the live login from the
 # stored backup, so cux add would silently capture stale credentials.
+# Switching by SLOT is unambiguous; switching by email is not (see slots() above).
+# </dev/null on both calls so an unexpected prompt can never hang an unattended run.
 rc=0
-for e in $LIST; do
-    if ! cswap switch "$e" --force >/dev/null 2>&1; then
-        log "  FAILED (switch): $e"; rc=3; continue
+while read -r n e; do
+    [ -n "$n" ] || continue
+    if ! cswap switch "$n" --force </dev/null >/dev/null 2>&1; then
+        log "  FAILED (switch): slot $n ($e)"; rc=3; continue
     fi
-    out="$(cux add </dev/null 2>&1)"
-    if [ $? -eq 0 ]; then
-        log "  $e -> $(printf '%s' "$out" | tail -1)"
+    # Pin to this email's existing cux slot/alias when we know it, so a repeated run
+    # refreshes in place instead of appending a duplicate.
+    prow="$(printf '%s\n' "$PLACEMENT" | awk -v em="$e" '$2==em {print; exit}')"
+    cslot="$(printf '%s' "$prow" | awk '{print $1}')"
+    calias="$(printf '%s' "$prow" | cut -s -d' ' -f3-)"
+    # Capture $? on the same line as the call — a trailing assignment would reset it to 0
+    # and mask every failure (cux add soft-fails with exit 0 in some cases as it is).
+    if [ -n "$cslot" ] && [ -n "$calias" ]; then
+        out="$(cux add --slot "$cslot" --alias "$calias" </dev/null 2>&1)"; arc=$?
+        dest="cux slot $cslot ($calias)"
+    elif [ -n "$cslot" ]; then
+        out="$(cux add --slot "$cslot" </dev/null 2>&1)"; arc=$?
+        dest="cux slot $cslot"
     else
-        log "  FAILED (cux add): $e -> $(printf '%s' "$out" | tail -1)"; rc=3
+        out="$(cux add </dev/null 2>&1)"; arc=$?
+        dest="cux next free slot"
     fi
-done
+    if [ $arc -eq 0 ]; then
+        log "  slot $n $e -> $dest :: $(printf '%s' "$out" | sed $'s/\033\[[0-9;:]*m//g' | tail -1)"
+    else
+        log "  FAILED (cux add): slot $n $e -> $(printf '%s' "$out" | tail -1)"; rc=3
+    fi
+done <<<"$LIST"
 
 # ---------- restore whichever account was active before ----------
 if [ -n "$ORIG" ] && [ "$ORIG" != "null" ]; then
     cswap switch "$ORIG" --force >/dev/null 2>&1 && log "restored active slot: $ORIG"
 fi
+
+# ---------- clear cux's cached verdict ----------
+# cux caches usage and keeps showing a healed account as EXPRD until it re-polls, which
+# makes a successful repair look like a failed one (and would keep it out of rotation).
+# --refresh forces the fetch; best-effort, never fatal.
+cux list --refresh >/dev/null 2>&1 && log "refreshed cux usage cache"
 
 exit $rc
