@@ -48,7 +48,7 @@ These are the failure modes this skill exists to encode — do not "simplify" th
   dies with `security find-generic-password ... exit 36` (`errSecInteractionNotAllowed`).
   It does *not* fall back to `~/.claude/.credentials.json`, and no env var forces file
   mode. `cswap` degrades gracefully, so import still works. Fix with
-  `~/.claude/unlock-keychain.sh` — see the `ssh-keychain-unlock` skill.
+  `~/.claude/unlock-keychain.sh` — see the `ssh-claude-auth` skill.
 - **Never pipe `cswap import`.** `cswap import f | tail -1 && ...` takes its exit status
   from `tail`, masking `import file not found` and continuing as if it worked.
 - **`cux`'s npm postinstall soft-fails with exit 0.** It downloads a native binary from
@@ -56,6 +56,19 @@ These are the failure modes this skill exists to encode — do not "simplify" th
 - **`cswap import` skips accounts that already exist** unless `--force`, but it *does*
   auto-heal slots quarantined as refresh-token-dead. A "0 imported, 2 skipped" result is
   normal and usually fine; use `--force` only to make the export authoritative.
+- **Syncing an OAuth account to N machines eventually kills it on N−1 of them.** The export
+  carries a `refreshToken`, and the server rotates that token on every use — it is single-use.
+  Once two machines hold the same one, the first to refresh (Claude Code on the next message,
+  `cswap auto`, or a background usage poll) invalidates every other copy, and the losers get
+  `invalid_grant` → `re-login needed — refresh token dead`. One strike is permanent. This is a
+  race with no stable winner, so it presents as accounts dying at random days later, not at
+  import time.
+
+  **Sync setup-token accounts instead** (`claude setup-token` → `cswap add-token`). They carry
+  no refresh token, so nothing rotates and the same token works on every machine at once. Mint
+  each account's token **once** and distribute that one value — see the `refresh-claude-account`
+  skill. Trade-off: setup-tokens are inference-only (no Remote Control, no claude.ai connectors)
+  and expire after ~1 year.
 
 ## Prerequisites per machine
 

@@ -1,6 +1,6 @@
 ---
 name: refresh-claude-account
-description: Refresh an expired Claude Code account out-of-band — mint a fresh long-lived token with `claude setup-token` and register it with `cswap add-token` — so the machine-global login and every running Claude session stay untouched. Use when `cux status` shows an account as EXPRD, when the user asks to refresh or re-authenticate an expired Claude account without interrupting running sessions, or when a stored cswap account's OAuth token is expired or revoked.
+description: Refresh an expired Claude Code account out-of-band — mint a fresh long-lived token with `claude setup-token` and register it with `cswap add-token` — so the machine-global login and every running Claude session stay untouched. Use when `cux status` shows an account as EXPRD, when `cswap list` says "re-login needed — refresh token dead", when the user asks to refresh or re-authenticate an expired Claude account without interrupting running sessions, or when converting an account to a long-lived setup-token so its refresh token can never die again.
 ---
 
 # Refresh an expired Claude account (out-of-band)
@@ -10,6 +10,54 @@ Claude session flips accounts — or starts failing while the target's creds are
 on its next API call. `claude setup-token` instead runs its own OAuth flow in the browser
 and only **prints** a token; the live login is never touched. This skill uses that
 out-of-band route: running sessions keep working throughout.
+
+## Why the refresh token died
+
+`cswap add` stores a full OAuth credential (`accessToken` + `refreshToken` + `expiresAt`) and
+renews it by POSTing `grant_type=refresh_token` to `https://platform.claude.com/v1/oauth/token`.
+**The server rotates the refresh token on every use**, so the lineage is single-use: if anything
+else spends it — a parallel Claude session, `cux`, a fleet peer that imported the same export —
+cswap's stored copy becomes a spent generation and the next refresh returns `invalid_grant`.
+
+That verdict is permanent on the first strike (`AUTH_DEAD_STRIKES = 1`), which is why the account
+goes straight to `re-login needed` with no retry. Corroborating symptom in
+`~/.claude-swap-backup/claude-swap.log`:
+
+```
+Live credential does not belong to Account-N (displaced-live-login) …
+Something outside cswap rewrote the live login after the last switch.
+```
+
+A setup-token has **no refresh token and no expiry timestamp**, so there is nothing to rotate,
+race, or reject — cswap skips the refresh path for these accounts entirely. Registering one also
+clears the dead-token quarantine.
+
+**It defers expiry rather than removing it.** A setup-token is a ~1-year credential; re-mint it
+annually with the same steps.
+
+### `cswap export` / `import` across machines is the usual killer
+
+Sharing an **OAuth** account between machines this way is self-destructive, because the export
+carries the `refreshToken` (`sk-ant-ort01-…`) and that token is single-use:
+
+1. `cswap import` copies it to machine B. Nothing breaks yet — import makes no token call.
+2. Whichever machine refreshes **first** — Claude Code on your next message, `cswap auto`
+   freshening a target before activating it, or a usage poll on an inactive slot — spends the
+   token and receives a rotated replacement.
+3. The other machine is still holding the spent generation. Its next refresh gets
+   `invalid_grant`, and one strike is fatal: `re-login needed — refresh token dead`.
+
+It is a race, not a hierarchy — the loser can be either machine, and the survivor looks fine, which
+is why this reads as random account death. cswap's own README flags the same trap from the other
+direction: *"a stale export can carry an already-superseded token."*
+
+**Setup-token accounts are immune and are the correct fleet credential.** With no refresh token
+there is nothing to rotate, so the same `sk-ant-oat01-…` works on every machine at once and
+`export`/`import` is safe.
+
+Unverified, so plan around it: whether minting a *new* setup-token revokes previously minted ones
+for the same account is undocumented. Treat it as if it might — **mint once and distribute that one
+token** to the fleet, rather than running `claude setup-token` separately on each machine.
 
 ## 1 — Detect
 
@@ -46,13 +94,23 @@ confirms was authorized as the target email.
 Feed the token via stdin (heredoc) so it stays off argv and out of shell history:
 
 ```bash
-cswap add-token - --email zhiqushi@gmail.com <<'EOF'
+cswap add-token - --email you@example.com --slot 2 <<'EOF'
 sk-ant-oat01-...
 EOF
 ```
 
 Always pass `--email`: setup-tokens carry no email, so without it the entry is named
 `setup-token-{slot}@token.local` and step 4 cannot match it to the account.
+
+**Repairing an account that was added with `cswap add`? Pass `--slot N` too.** cswap matches
+identity on `(email, organizationUuid)`, and a token account is always registered as *personal*
+(`organizationUuid: ""`). An account captured from a real login carries its actual org uuid, so
+the match fails and cswap files the token in a **brand-new slot**, leaving the dead one in place.
+`--slot N` targets the existing slot instead; cswap prompts `Overwrite slot N? [y/N]` — answer `y`.
+The slot's org metadata is replaced by the personal placeholder, which is expected and cosmetic.
+
+`--slot` is unnecessary when refreshing a slot that is *already* a token account — email alone
+matches it and the credential is replaced in place.
 
 ## 4 — Verify
 
@@ -66,6 +124,30 @@ created a second slot for an email that already had one, `cswap remove` the stal
 
 Repeat 2–4 for each expired account.
 
+## Converting the currently-active account
+
+Steps 1–4 leave the live login untouched, which is the point — but that also means a token written
+to the **active** slot is not yet durable. When cswap switches *away* from an account it backs up
+whatever credential is live at that moment over the slot's stored copy, so the next `cswap switch`
+would overwrite your new token with the old OAuth credential still in the keychain.
+
+Make it stick by activating it once:
+
+```bash
+cswap add-token - --email you@example.com --slot 1 <<'EOF'
+sk-ant-oat01-...
+EOF
+cswap switch 1 --force
+```
+
+After that the live bytes and the stored bytes match, so later switches classify the slot as
+`own-bytes` and only re-save its config.
+
+Warn the user first — `switch` rewrites the machine-global credential, so every running session
+hot-reloads onto the new token mid-flight. **A setup-token is inference-only**: from that point the
+account can no longer establish Remote Control sessions (driving this machine from claude.ai or
+mobile) or fetch claude.ai connectors. Accounts that need those must stay on a normal login.
+
 ## Scope: cux keeps showing EXPRD
 
 cux has no `add-token`; refreshing cux's copy takes the global dance
@@ -77,6 +159,8 @@ dance at an idle moment, or via `/switch` from inside a cux session so it reconn
 
 ## Security
 
-The token is an unencrypted long-lived OAuth credential. Keep it out of argv and out of
-your replies (confirm registration without echoing it). cswap stores it in plaintext —
-treat `cswap export` output accordingly.
+The token is an unencrypted OAuth credential valid for roughly a year, and it cannot be rotated
+away by normal use — its blast radius is wider and longer-lived than a refreshable login. Keep it
+out of argv and out of your replies (confirm registration without echoing it). cswap stores it in
+plaintext, so a `cswap export` file is a year's worth of account access: mode `600`, delete it
+after import, never commit it.
