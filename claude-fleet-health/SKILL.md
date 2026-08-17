@@ -45,11 +45,38 @@ grep -vE '^\s' ~/Library/Logs/fleet-refresh.log | tail -8
 `cswap auto --once --dry-run --json` is a safe read-only probe — it evaluates and reports but
 never switches or writes state. Schedule it per machine and alert on:
 
-- **`headroomPct` null for an account** → dead/unreadable refresh token, caught *before* the
-  account is needed. Observed in practice: a probe returning `{"1": null, "2": 35.0}` correctly
-  flagged slot 1 as dead while slot 2 was still healthy — days before anything tried to use it.
+- **`headroomPct` null for an account** → unreadable usage, caught *before* the account is
+  needed. Observed in practice: a probe returning `{"1": null, "2": 35.0}` correctly flagged
+  slot 1 while slot 2 was still healthy — days before anything tried to use it.
 - **A changed `refreshToken` prefix on a receiver** → that machine refreshed, meaning the race
   is live and the design has sprung a leak.
+
+**A single null is not proof of a fault.** The usage endpoint rate-limits (429) under exactly
+the load a busy fleet generates, and a rate-limited probe reports null for a perfectly healthy
+account. Alerting on the first null produces false alarms — seen 2026-08-17, two machines
+alerted while `cswap list --token-status` showed every account `fresh, refresh token yes`. A
+monitor that cries wolf gets ignored, and then the real event is missed. So separate the
+permanent conditions from the transient one:
+
+| Signal | Meaning | Treatment |
+|---|---|---|
+| `re-login needed` | Refresh token dead — the race fired | Alert immediately |
+| `http-403` | Credential lacks `user:profile` — a setup-token got in | Alert immediately |
+| `http-429` / a bare null | Usage endpoint throttled | Note it; alert only if it **persists** |
+| Host unreachable | Cannot confirm health at all | Alert — it still holds credentials |
+
+`fleet-health-check` implements this with a per-host streak counter in
+`~/.local/state/fleet-health-nulls`: a null increments, a clean run resets, and it alerts once
+the streak reaches 3 consecutive runs (~3h hourly, which is no longer plausibly rate limiting).
+Early detection survives; the noise does not.
+
+**Measure the account nearest death, not the live one.** The expiry probe driving the
+force-vs-defer decision must take the **minimum across all slots** (`cswap list --token-status`
+prints one `expires HH:MM in Xh Ym` per slot). Reading only the live login measures the wrong
+thing whenever a machine's two accounts have different expiries: seen 2026-08-17, mac-mini-m2
+reported "4h" from its live slot while its *other* slot's stored backup sat 60 minutes from
+expiry — so it deferred every cycle, and cux swapping onto that slot would have activated a
+dead token and rotated it out from under the fleet.
 
 A healthy probe looks like this — two events per tick, and no nulls:
 
