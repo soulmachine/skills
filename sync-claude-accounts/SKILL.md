@@ -249,8 +249,8 @@ Three things that design must respect:
 
 - **Never push from an authority holding a dead account.** `--force` overwrites receivers,
   so publishing a dead slot destroys working copies elsewhere. On 2026-08-17 this machine
-  held a dead `zhiqushi` while mac-studio-m3 held the only live one — pushing would have
-  killed it fleet-wide. `fleet-refresh-credentials` aborts on any `re-login needed` locally.
+  held a dead copy of one account while a single receiver held the only live one — pushing
+  would have killed it fleet-wide. `fleet-refresh-credentials` aborts on any `re-login needed` locally.
   Re-seed the authority first with `cswap export <file> --account <email>` from whichever
   machine still has a live copy, then `cswap import <file> --force` — that is Path A of the
   `refresh-claude-account` skill, which is where this repair belongs.
