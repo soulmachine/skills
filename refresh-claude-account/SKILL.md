@@ -11,6 +11,39 @@ on its next API call. `claude setup-token` instead runs its own OAuth flow in th
 and only **prints** a token; the live login is never touched. This skill uses that
 out-of-band route: running sessions keep working throughout.
 
+## OAuth login vs setup-token
+
+Both are OAuth credentials for the same subscription. The difference is what you receive and what
+it is allowed to do.
+
+| | `claude /login` (OAuth login) | `claude setup-token` |
+|---|---|---|
+| **What you get** | A bundle: `accessToken` + `refreshToken` + `expiresAt` + `scopes` | One bearer token, printed once |
+| **Access token life** | ~8 hours | ~1 year |
+| **Renewal** | Automatic — Claude Code silently refreshes | None; re-mint when it dies |
+| **Scopes** | `user:inference`, `user:profile`, `user:sessions:claude_code`, `user:mcp_servers`, `user:file_upload` | `user:inference` **only** |
+| **Storage** | Keychain (`Claude Code-credentials`), rewritten on each refresh | Nowhere — the command only prints it |
+| **Shareable across machines** | No — the refresh token rotates | Yes, unlimited |
+
+Three consequences do most of the work:
+
+- **They look identical.** Both start `sk-ant-oat01-` — a normal login's *access* token has the same
+  prefix. The prefix proves nothing; the presence of a `refreshToken` is the only reliable tell,
+  which is why `cswap list --token-status` reports `refresh token yes/no` instead of inspecting the
+  string.
+- **Rotation is the durability win.** A refresh token is single-use (see below). A setup-token has
+  none, so there is nothing to rotate and nothing to race.
+- **Scope is the cost.** `user:inference` buys model calls and nothing else. Verified on a live
+  setup-token: `cswap list` reports `usage unavailable (http-403)` — the usage endpoint rejects the
+  scope, so **5h/7d percentages are gone and `cswap auto` / `switch --strategy` fly blind** on that
+  account. Remote Control (needs `user:sessions:claude_code`) and claude.ai connectors are gone too.
+  Inference itself is unaffected.
+
+Rule of thumb: **a setup-token is a durable, dumb API key; an OAuth login is a live, full-featured
+session that cannot be shared.** Headless boxes, CI, and fleet sync want the first. An interactive
+daily-driver machine usually wants the second — converting it trades away quota visibility
+permanently, so confirm with the user before converting an account they actively work in.
+
 ## Why the refresh token died
 
 `cswap add` stores a full OAuth credential (`accessToken` + `refreshToken` + `expiresAt`) and
@@ -118,9 +151,13 @@ matches it and the credential is replaced in place.
 cswap list --token-status
 ```
 
-Done when the target email appears exactly once with a healthy token. If `add-token`
-created a second slot for an email that already had one, `cswap remove` the stale slot
-(`cswap move` renumbers if slot order matters).
+Done when the target email appears exactly once with `refresh token no` and no
+`re-login needed`. If `add-token` created a second slot for an email that already had one,
+`cswap remove` the stale slot (`cswap move` renumbers if slot order matters).
+
+`usage unavailable (http-403)` on that line is expected, not a failure — see the scope note
+above. Confirm the credential works with a real call instead: `claude -p 'say ok'` (on the
+active slot) or `cswap run N -- -p 'say ok'` (any other slot).
 
 Repeat 2–4 for each expired account.
 
@@ -147,6 +184,34 @@ Warn the user first — `switch` rewrites the machine-global credential, so ever
 hot-reloads onto the new token mid-flight. **A setup-token is inference-only**: from that point the
 account can no longer establish Remote Control sessions (driving this machine from claude.ai or
 mobile) or fetch claude.ai connectors. Accounts that need those must stay on a normal login.
+
+## 5 — Export a backup (final step)
+
+Once every account verifies, snapshot them:
+
+```bash
+cd ~ && cswap export claude-accounts.json
+```
+
+**Write it outside any git repo** — cswap exports credentials in plaintext, so an export dropped in
+a working tree is one `git add -A` away from publishing a year of account access. `cd ~` first
+rather than exporting into the current directory. cswap writes the file mode `600`; confirm with
+`ls -l`.
+
+Confirm the export is rotation-immune before syncing it anywhere — it should contain setup-tokens
+only, with no refresh-token lineage to race:
+
+```bash
+python3 -c "
+import os
+s=open(os.path.expanduser('~/claude-accounts.json')).read()
+print('refresh tokens present:', 'sk-ant-ort' in s or 'refreshToken' in s)"
+```
+
+`False` means every account in the file is a setup-token and the export is safe to `cswap import`
+on any number of machines. `True` means at least one account still carries a rotating refresh
+token — importing that elsewhere will eventually kill it (see the export/import race above), so
+either convert that account too or export selectively with `cswap export --account N`.
 
 ## Scope: cux keeps showing EXPRD
 
