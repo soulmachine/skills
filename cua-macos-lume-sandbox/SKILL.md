@@ -62,6 +62,8 @@ VM=my-sandbox SHARED_DIR="$HOME/work/sandbox" bash scripts/provision.sh
 | `DISK_SIZE` | — | unset means don't resize; **increase-only** |
 | `DISPLAY_RES` | `1920x1080` | applied *inside* the guest, see traps |
 | `INSTALL_COMPUTER_SERVER` | `0` | `1` also installs Path B (HTTP API) |
+| `INSTALL_TERMINFO` | `1` | export the host's terminfo into the guest user's `~/.terminfo` |
+| `TERMINFO_TERMS` | `$TERM` | space-separated entries to export; skips ones the guest has |
 
 `--recreate` destroys an existing VM of that name first.
 
@@ -75,8 +77,11 @@ VM=my-sandbox SHARED_DIR="$HOME/work/sandbox" bash scripts/provision.sh
 5. **Install `cua-driver`** and a LaunchAgent pointing at the **in-bundle** binary.
 6. **Grant TCC** directly in `TCC.db` when `csrutil` reports SIP disabled; otherwise print the
    manual instructions.
-7. **Set guest resolution** with `displayplacer`.
-8. **Verify** — SIP, `doctor`, permissions booleans, and a real `get_desktop_state` capture.
+7. **Export terminfo** — compiles the host's `$TERM` entry into the guest user's
+   `~/.terminfo`, which ncurses already searches, so SSHing in from Ghostty/kitty/WezTerm
+   doesn't hit "unknown terminal type".
+8. **Set guest resolution** with `displayplacer`.
+9. **Verify** — SIP, `doctor`, permissions booleans, and a real `get_desktop_state` capture.
 
 It is idempotent: re-running is also the health check.
 

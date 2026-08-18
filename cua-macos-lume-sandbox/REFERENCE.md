@@ -292,6 +292,56 @@ command output.
   column and the API returns `sharedDirectories: null`, while inside the guest
   `/Volumes/My Shared Files/<name>` is mounted over AppleVirtIOFS. Cosmetic gap, not a failure.
 
+### Terminfo: install per-user, and `lume ssh` eats stdin
+
+SSHing into a stock guest from Ghostty (or kitty/WezTerm) gives `unknown terminal type
+xterm-ghostty` — no colors, broken arrows and backspace. The fix is to compile the host's entry
+into the guest's `~/.terminfo`, which ncurses already searches first on stock macOS:
+
+```
+$ infocmp -D
+/Users/lume/.terminfo
+/usr/share/terminfo
+```
+
+Nothing else is needed — no `TERMINFO_DIRS`, no `/etc/zshenv` or `/etc/profile` edit, no sudo. Two
+things to know anyway.
+
+**The system terminfo dir cannot be written, SIP off or not**, so a system-wide install is not the
+easy alternative it looks like. macOS mounts `/` from a *sealed* APFS snapshot:
+
+```
+$ mount | grep 'on / '
+/dev/disk4s1s1 on / (apfs, sealed, local, read-only, journaled)
+$ sudo tic -x -o /usr/share/terminfo -    # even as root, csrutil disabled
+tic: /usr/share/terminfo: Read-only file system
+```
+
+SIP being disabled is irrelevant — the read-only system volume is the Signed System Volume, and
+writing it means `csrutil authenticated-root disable` plus a reboot. The writable data-volume
+substitute, `/usr/local/share/terminfo`, is *not* on the compiled-in search path, so going that
+route drags in `TERMINFO_DIRS` exported from both `/etc/zshenv` (zsh sources it on every
+invocation) and `/etc/profile` (a clean-env bash login shell gets nothing from zshenv) — three
+root-owned files patched to serve the one user the sandbox has. `~/.terminfo` costs none of that.
+
+**`lume ssh` does not forward stdin.** The canonical one-liner hangs and then dies:
+
+```
+$ echo hi | lume ssh nickel cat
+Error: SSH operation timed out
+```
+
+So `infocmp -x xterm-ghostty | lume ssh vm tic -x -` cannot work. `provision.sh` base64s the
+terminfo source into the command string instead. (Raw `ssh lume@<ip>` *does* pipe fine — this is a
+`lume ssh` wrapper limitation, not an SSH one.)
+
+`tic` prints `older tic versions may treat the description field as an alias` on these entries and
+still exits 0, so the check that counts is reading the entry back:
+
+```
+$ lume ssh "$VM" 'infocmp xterm-ghostty >/dev/null && echo OK'
+```
+
 ---
 
 ## 6. Path B: the HTTP API (`cua-computer-server`)

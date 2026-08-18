@@ -20,6 +20,8 @@
 #   DISK_SIZE                unset = do not resize; increase-only when set
 #   DISPLAY_RES              default 1920x1080; applied INSIDE the guest
 #   INSTALL_COMPUTER_SERVER  1 also installs the Path B HTTP API
+#   INSTALL_TERMINFO         1 (default) export host terminfo into the guest's ~/.terminfo
+#   TERMINFO_TERMS           terminfo names to export; default "$TERM"
 #
 #   --recreate               destroy an existing VM of that name first
 #
@@ -39,6 +41,8 @@ GOLDEN="${GOLDEN:-}"
 VM_USER="${VM_USER:-lume}"   # do NOT rename; cua hardcodes /Users/lume
 VM_PASS="${VM_PASS:-lume}"
 INSTALL_COMPUTER_SERVER="${INSTALL_COMPUTER_SERVER:-0}"
+INSTALL_TERMINFO="${INSTALL_TERMINFO:-1}"
+TERMINFO_TERMS="${TERMINFO_TERMS:-${TERM:-}}"
 DRIVER_BIN="/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
 
 RECREATE=0
@@ -172,6 +176,52 @@ if [ -n "$PUBKEY" ]; then
     chmod 600 ~/.ssh/authorized_keys" || warn "could not install public key"
 else
   warn "no ~/.ssh/id_ed25519.pub or id_rsa.pub found — the MCP wrapper needs key auth (ssh-keygen -t ed25519)"
+fi
+
+# --------------------------------------- 4c. terminfo for the host's terminal
+# Ghostty, kitty and WezTerm ship terminfo entries a stock macOS guest has never
+# heard of, so SSHing in gets "unknown terminal type" and loses colors, arrow
+# keys and backspace. Export the host's own entry into the guest.
+#
+# It goes into the guest user's ~/.terminfo, which ncurses already searches
+# first on stock macOS (`infocmp -D`) — so no TERMINFO_DIRS, no rc files, no
+# sudo. A system-wide install is not really on offer anyway: /usr/share/terminfo
+# sits on the sealed read-only system volume and `tic -o` there fails even as
+# root with SIP off.
+#
+# `lume ssh` does not forward stdin, so the usual `infocmp | ssh host tic -`
+# pipe hangs and times out. The entry is base64'd into the command instead.
+if [ "$INSTALL_TERMINFO" -eq 1 ] && [ -n "$TERMINFO_TERMS" ]; then
+  TI_WANTED=""
+  for t in $TERMINFO_TERMS; do
+    if in_vm "infocmp $t >/dev/null 2>&1" 2>/dev/null; then
+      log "terminfo '$t' already resolves in the guest"
+    elif infocmp -x "$t" >/dev/null 2>&1; then
+      TI_WANTED="$TI_WANTED $t"
+    else
+      warn "host has no terminfo entry for '$t' — skipping"
+    fi
+  done
+
+  if [ -n "$TI_WANTED" ]; then
+    log "installing terminfo into ~$VM_USER/.terminfo in the guest:$TI_WANTED"
+    # shellcheck disable=SC2086
+    TI_SRC_B64="$(for t in $TI_WANTED; do infocmp -x "$t"; done | base64 | tr -d '\n')"
+    # tic warns "older tic versions may treat the description field as an alias"
+    # on these entries and still exits 0; the per-entry check below is the real
+    # verdict, so just drop that line from the output.
+    in_vm "echo '$TI_SRC_B64' | base64 -D > /tmp/cua-terminfo.src
+      mkdir -p ~/.terminfo
+      tic -x -o ~/.terminfo /tmp/cua-terminfo.src
+      rm -f /tmp/cua-terminfo.src" 2>&1 \
+      | grep -v 'older tic versions' | sed 's/^/    /' || true
+
+    for t in $TI_WANTED; do
+      in_vm "infocmp $t >/dev/null 2>&1" 2>/dev/null \
+        && log "terminfo '$t' now resolves in the guest" \
+        || warn "terminfo '$t' still does not resolve in the guest"
+    done
+  fi
 fi
 
 # ---------------------------------------------------------------- 5. the driver
