@@ -114,6 +114,33 @@ lume ssh <vm> "launchctl kickstart -k gui/\$(id -u)/com.trycua.driver"
 Result, with nobody at the VM's screen: `{"accessibility": true, "screen_recording": true}`, and
 `cua-driver call get_desktop_state '{}'` returns a real PNG.
 
+### The one grant that is NOT in TCC.db: Tahoe's direct capture
+
+After provisioning, a modal is left sitting on the guest's desktop:
+
+> *"CuaDriver" is requesting to bypass the system private window picker and directly access your
+> screen and audio.* — **Allow** / **Open System Settings**
+
+This is the third item in cua-driver's own list ("Accessibility, Screen Recording, **and Tahoe's
+direct-capture consent**") and it is **separate from the four TCC rows above**. Confirmed 2026-08-17
+by clicking Allow and re-reading state: **no new row appears in
+`/Library/Application Support/com.apple.TCC/TCC.db`**, so this consent is stored elsewhere and cannot
+be granted with the SQL above.
+
+What it does and does not affect:
+
+- **Full-display capture works without it.** `get_desktop_state` returned a correct 1920x1080 PNG
+  both before and after the dialog was answered.
+- **The modal itself is the problem.** It is focused and on top, so it will interfere with UI
+  automation until dismissed — and a screenshot of a "provisioned" VM will show a permission prompt.
+- **`direct_capture_status` does not track it.** The field reads `"not_checked"` both before and
+  after granting; it means the daemon has not run a direct-capture probe, not that consent is
+  missing. Do not use it as a grant check — `cua-driver permissions grant` is what runs the probe.
+
+Dismiss it once at the VM's screen (`lume run <vm> --display vnc`), or have the driver click its own
+dialog — Accessibility and PostEvent are already granted, so it can. Then `lume clone` the result as
+a golden image so no future rebuild sees it again.
+
 ### When SIP is on (vanilla image)
 
 The grants must be clicked at the VM's screen. Two traps:

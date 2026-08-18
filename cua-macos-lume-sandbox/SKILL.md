@@ -9,8 +9,12 @@ Turns a [lume](https://github.com/trycua/cua)-managed macOS guest on Apple Silic
 [cua](https://cua.ai) computer-use sandbox: `cua-driver` running under a LaunchAgent, Accessibility
 and Screen Recording granted, and a verified screen capture at the resolution you asked for.
 
-**On `macos-tahoe-cua` the entire run is unattended** — no sitting at the VM's screen. That hinges
-entirely on the image; see the decision rule below.
+**On `macos-tahoe-cua` the run is unattended** — Accessibility, Screen Recording, and full-display
+capture all come up without anyone at the VM's screen. That hinges entirely on the image; see the
+decision rule below. One leftover needs a single click: **Tahoe raises a separate "direct capture"
+consent** that does not live in TCC.db and so cannot be scripted — see
+[REFERENCE.md §3](REFERENCE.md). Capture works without answering it; the dialog just sits on the
+desktop, where it will get in the way of UI automation until dismissed.
 
 Validated end to end on a Mac Studio M3 Ultra / macOS 26.6.1 host, guest macOS 26.4 (25E246),
 lume 0.5.3, cua-driver 0.20.0. Every trap the scripts work around is documented in
