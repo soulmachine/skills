@@ -16,7 +16,8 @@
 #                          swaps the login out from under a supervised session.
 #
 # Exit: 0 ok | 1 preflight/import failure | 2 keychain locked | 3 one or more accounts
-#       failed | 4 imported, but the live login is a setup-token so cux cannot register it
+#       failed — a switch, a cux add, OR a credential that did not take (see MISMATCH)
+#       | 4 imported, but the live login is a setup-token so cux cannot register it
 #       | 5 skipped, a cux session was running (SKIP_IF_CUX_BUSY=1)
 set -uo pipefail
 
@@ -97,10 +98,55 @@ fi
 # The PATH MUST COME FIRST. cswap's argparse maps the `import` verb onto `--import`, which
 # takes the path as its argument, so `cswap import --force <file>` fails with
 # "argument --import: expected one argument". Correct form is `cswap import <file> --force`.
-if [ "$IMPORT_FORCE" = "1" ]; then
-    cswap import "$ACCOUNTS_FILE" --force || die "cswap import --force failed"
+#
+# IMPORT TWICE, AROUND A SWITCH. `cswap import` writes each account's STORED credential but
+# cannot update the LIVE login of the ACTIVE slot — it says so and suggests
+# `cswap --switch-to N --force`, which does nothing on an already-active slot. So a receiver
+# whose active slot is the account being pushed silently keeps its old credential while this
+# script reports success. Switching away first makes that slot importable; but the switch BACK
+# then backs the stale live credential into the slot it leaves, clobbering the fresh import
+# there — hence a second import to repair it. Verified 2026-08-19 across all four receivers.
+#
+# Net effect per pass:
+#   switch away   live := other.store          (other slot is now live and stale)
+#   import #1     active.store := pushed       (active slot is importable now)
+#   switch back   live := active.store = pushed  BUT other.store := stale live
+#   import #2     other.store := pushed        (other slot is not live, so this sticks)
+do_import() {
+    if [ "$IMPORT_FORCE" = "1" ]; then
+        cswap import "$ACCOUNTS_FILE" --force
+    else
+        cswap import "$ACCOUNTS_FILE"
+    fi
+}
+
+# Unlock before the dance, not after. Every cswap write below wants the keychain, and cswap
+# degrades to writing ~/.claude/.credentials.json whenever it is unavailable mid-operation —
+# which would land the credential exactly where cux cannot see it. Best-effort; the
+# authoritative probe with its 36-vs-44 handling still runs below.
+[ -f "$HOME/.claude/unlock-keychain.sh" ] && bash "$HOME/.claude/unlock-keychain.sh" >/dev/null 2>&1
+
+PRE_J="$(cswap list --json 2>/dev/null)"
+PRE_ACTIVE="$(printf '%s' "$PRE_J" | /usr/bin/python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("activeAccountNumber") or "")
+except Exception: print("")' 2>/dev/null)"
+PRE_OTHER="$(printf '%s' "$PRE_J" | /usr/bin/python3 -c 'import json,sys
+try:
+    d=json.load(sys.stdin); act=d.get("activeAccountNumber")
+    print(next((str(a["number"]) for a in d.get("accounts",[]) if a.get("number")!=act), ""))
+except Exception: print("")' 2>/dev/null)"
+
+if [ -n "$PRE_ACTIVE" ] && [ -n "$PRE_OTHER" ]; then
+    cswap switch "$PRE_OTHER" --force </dev/null >/dev/null 2>&1 \
+        || log "warn: could not switch off active slot $PRE_ACTIVE; it may keep its old credential"
+    do_import || die "cswap import failed"
+    cswap switch "$PRE_ACTIVE" --force </dev/null >/dev/null 2>&1
+    do_import || die "cswap import (second pass) failed"
 else
-    cswap import "$ACCOUNTS_FILE" || die "cswap import failed"
+    # One account, or the active slot is unreadable: there is nowhere to switch away TO, so
+    # the dance has nothing to protect. The per-slot check below still reports the outcome
+    # rather than letting a stale credential pass as success.
+    do_import || die "cswap import failed"
 fi
 
 # ---------- keychain ----------
@@ -211,6 +257,31 @@ PY
 }
 PLACEMENT="$(cux_placement)"
 
+# ---------- credential verification ----------
+# The failure this guards against is SILENT: before 2026-08-19 a push could leave a machine on
+# its old credential while every exit code and log line said success. Comparing the live login
+# against the export by access-token tail is what makes that outcome visible. Tails, not whole
+# tokens, so nothing secret reaches a log.
+exp_fp() {
+    /usr/bin/python3 -c 'import json,sys
+try:
+    d=json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+for a in d.get("accounts",[]):
+    if a.get("email")==sys.argv[2]:
+        t=((a.get("credentials") or {}).get("claudeAiOauth") or {}).get("accessToken") or ""
+        print(t[-6:]); break' "$ACCOUNTS_FILE" "$1" 2>/dev/null
+}
+live_fp() {
+    security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null \
+    | /usr/bin/python3 -c 'import json,sys
+try:
+    t=(json.load(sys.stdin).get("claudeAiOauth") or {}).get("accessToken") or ""
+    print(t[-6:] if t else "EMPTY")
+except Exception: print("NONE")' 2>/dev/null
+}
+
 # ---------- register each account with cux ----------
 # cux add only ever captures the CURRENTLY LOGGED-IN account, so each one has to be
 # made live first. --force matters: switching to an already-active account otherwise
@@ -223,6 +294,14 @@ while read -r n e; do
     [ -n "$n" ] || continue
     if ! cswap switch "$n" --force </dev/null >/dev/null 2>&1; then
         log "  FAILED (switch): slot $n ($e)"; rc=3; continue
+    fi
+    # This slot is live now, so the live login is exactly what this account will use.
+    # Compare it with what we pushed before handing it to cux — registering an unverified
+    # credential would just copy a stale token into cux's separate backup as well.
+    want="$(exp_fp "$e")"; got="$(live_fp)"
+    if [ -n "$want" ] && [ "$want" != "$got" ]; then
+        log "  MISMATCH: slot $n $e — live ...$got but export has ...$want; credential did not take"
+        rc=3
     fi
     # Pin to this email's existing cux slot/alias when we know it, so a repeated run
     # refreshes in place instead of appending a duplicate.

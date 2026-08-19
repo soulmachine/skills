@@ -19,16 +19,18 @@ Two LaunchAgents on the authority, both loaded and verified (`last_exit=0`):
 
 | Agent | Cadence | Does |
 |---|---|---|
-| `com.claude.fleet-refresh` | 30 min | Exports live credentials, pushes to the 4 receivers with `IMPORT_FORCE=1` |
+| `com.claude.fleet-refresh` | 15 min | Exports live credentials, pushes to the 4 receivers with `IMPORT_FORCE=1` |
 | `com.claude.fleet-health` | hourly | Alerts on dead slots / null headroom / unreachable hosts |
 
 Backing files:
 
 | Path | Role |
 |---|---|
-| `~/.local/bin/fleet-refresh-credentials` | The push cycle. `--dry-run` reports what it would do without touching anything |
+| `claude-fleet-health/scripts/fleet-refresh-credentials` | The push cycle, version-controlled here. `--dry-run` reports what it would do without touching anything. `FLEET_HOSTS="a b c"` targets a different fleet |
+| `claude-fleet-health/scripts/claude-refresh-export` | Proactively refreshes near-expiry accounts inside an export, in place, using claude-swap's own OAuth code. Called by `proactive_refresh()`; must run on claude-swap's venv python, which the caller discovers |
+| `~/.local/bin/fleet-refresh-credentials`, `~/.local/bin/claude-refresh-export` | **Symlinks into the two paths above.** Deliberately not copies: a copy drifts silently, and on 2026-08-19 the deployed script and the repo had already diverged. A broken symlink fails loudly in `fleet-refresh.err.log` instead |
 | `~/.local/bin/fleet-health-check` | The monitor. `NOTIFY=0` suppresses the desktop notification |
-| `~/Library/LaunchAgents/com.claude.fleet-refresh.plist` | `StartInterval` 1800, `RunAtLoad` true |
+| `~/Library/LaunchAgents/com.claude.fleet-refresh.plist` | `StartInterval` 900 (15 min; was 1800 until 2026-08-19), `RunAtLoad` true |
 | `~/Library/LaunchAgents/com.claude.fleet-health.plist` | `StartInterval` 3600 |
 | `~/Library/Logs/fleet-refresh.log`, `fleet-health.log` | Per-cycle transcripts |
 | `…/fleet-refresh.err.log`, `fleet-health.err.log` | Should stay empty; content here means the agent itself is failing |
@@ -136,6 +138,21 @@ START exported 2 account(s)
 DONE ok=2 deferred=2 failed=0
 ```
 
+- **`REFRESH`** lines mean the authority minted a fresh token *before* pushing — the normal,
+  healthy path once any credential drops under 90 minutes:
+
+  ```
+  REFRESH lowest credential has 84m left (< 90m) — refreshing here first
+        REFRESHED work@example.com ...a1b2c3 -> ...d4e5f6, 479m left (probe 200)
+        cux resynced: work@example.com (cux slot 1)
+  REFRESH complete — lowest credential now 479m
+  ```
+
+  `REFRESHED-UNVERIFIED` means the new credential was minted and kept but its probe did not
+  return 200 — the credential is still the only live generation (the old one died on the POST),
+  so it is deliberately retained. Check the next cycle; if it recurs, the account needs
+  `refresh-claude-account`. A `FAILED … refresh error=invalid_grant` means that lineage is
+  permanently dead and something else refreshed it — the single-writer invariant is broken.
 - **DEFERRED** is normal, not a failure. Registering an account requires making it live, which
   would swap the login out from under a supervised cux session, so a busy machine is skipped —
   *unless* its access token has under 90 minutes left, at which point a momentary swap is
@@ -177,7 +194,7 @@ everything — a push reports success even where it did not overwrite the live l
 | `ABORT … dead on the authority` | The authority can no longer seed the fleet | Repair it with `refresh-claude-account` — Path A (re-seed from a machine that still works) before Path B |
 | Receiver has dead slots | The race fired on that machine | Usually self-heals on the next push (`cswap import --force` clears the dead-token strike). If it recurs, the single-writer invariant is broken |
 | Null headroom, no dead slot | Usage unreadable — often a stray setup-token (403), sometimes transient rate limiting (429) | Confirm with `cswap list --token-status`; `refreshToken: no` means a setup-token got in and cannot rotate |
-| Receiver's `refreshToken` prefix diverges | That machine refreshed on its own | **Logged as a note, never alerted — and unreliable as written** (see "the divergence signal is not yet trustworthy"). A plain forced push may *not* re-converge it: if that account is the receiver's active slot, import cannot overwrite the live login. Use the switch-away/import/switch-back sequence in `sync-claude-accounts`, then re-check by fingerprint |
+| Receiver's `refreshToken` prefix diverges | That machine refreshed on its own | **Logged as a note, never alerted — and unreliable as written** (see "the divergence signal is not yet trustworthy"). Since 2026-08-19 a forced push *does* re-converge it: the per-machine script imports twice around a switch and reports `MISMATCH` (exit 3) if a credential did not take. Re-check by fingerprint if it recurs |
 | Host unreachable | Cannot confirm credential health | Not benign — an unreachable machine still holds credentials and may refresh unobserved |
 
 **Never repair on a receiver.** The authority's next push overwrites it. Repair the authority and
@@ -190,11 +207,16 @@ Receivers inherit the authority's *remaining* access-token life, which sawtooths
 refreshes leaves receivers briefly holding a near-expired token, and a receiver that runs Claude
 Code in that window **will** refresh and rotate the token out from under everyone.
 
-The 30-minute cadence bounds the exposure to roughly one 30-minute window per 8-hour cycle,
-versus the permanent N-way race it replaced. It is a mitigation with an operational dependency,
-not a structural guarantee — which is exactly why the hourly check runs whether or not anyone is
-watching. The structural fixes are more accounts (one per rotating machine) or fewer rotating
-machines.
+**As of 2026-08-19 that trough is closed at the source.** The authority no longer waits for its
+token to age out: `proactive_refresh()` mints a fresh ~8h token once anything drops under 90
+minutes and pushes it in the same cycle, so receivers are topped up long before they could reach
+a refresh buffer of their own. Cadence (now 15 min) is a safety margin, not the mechanism.
+
+Keep monitoring anyway. The guarantee holds only while its preconditions do: exactly one machine
+refreshing, `REFRESH_BELOW` ≤ `FORCE_BELOW_SECONDS` (or a refresh strands a spent token on any
+receiver that defers), and `cux` actually resolvable from the agent's PATH (it is *not* on the
+default PATH — it ships under mise-managed node — and without it cux keeps its own stale copy).
+A silent regression in any of those looks exactly like the old race, days later.
 
 ## Changing the schedule
 
@@ -208,8 +230,21 @@ launchctl load  ~/Library/LaunchAgents/com.claude.fleet-refresh.plist
 `RunAtLoad` on the refresh agent means loading it fires a cycle immediately — convenient for
 testing, but it also means a reboot does not wait out a full interval.
 
-Shortening the interval reduces the residual gap but increases how often busy machines get
-forced through a live session; lengthening it does the reverse. Do not add a second rotator:
+**`launchctl kickstart` does NOT pick up a changed `StartInterval`** — launchd caches it from
+load time, so kickstart only re-runs the job on the old schedule. The unload/load above (or
+`launchctl bootout gui/$UID/com.claude.fleet-refresh` followed by
+`launchctl bootstrap gui/$UID <plist>`) is what actually applies it. Confirm with:
+
+```bash
+launchctl print "gui/$(id -u)/com.claude.fleet-refresh" | grep -i 'run interval'
+```
+
+Since the proactive refresh landed, **the interval is no longer the knob that governs safety** —
+`REFRESH_BELOW` in `fleet-refresh-credentials` is. Raising it refreshes earlier and keeps more
+headroom on the receivers; lowering it squeezes more life out of each token. If you raise it past
+`FORCE_BELOW_SECONDS` the script will say so and raise the force threshold to match, because a
+refresh with those two crossed can strand a spent token on a deferring receiver. The interval now
+just bounds how quickly a *failed* cycle is retried. Do not add a second rotator:
 cux is the rotation layer, and `cswap auto` must stay **off** (only its `--dry-run` probe is
 used here) — two controllers swapping the same accounts fight, and the result is
 indistinguishable from the race.
