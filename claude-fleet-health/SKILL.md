@@ -49,7 +49,33 @@ never switches or writes state. Schedule it per machine and alert on:
   needed. Observed in practice: a probe returning `{"1": null, "2": 35.0}` correctly flagged
   slot 1 while slot 2 was still healthy — days before anything tried to use it.
 - **A changed `refreshToken` prefix on a receiver** → that machine refreshed, meaning the race
-  is live and the design has sprung a leak.
+  is live and the design has sprung a leak. **Today this signal only reaches the log, never an
+  alert** — and it is the weakest of the four. See the gap below before relying on it.
+
+### The divergence signal is not yet trustworthy
+
+`fleet-health-check` compares each receiver's **live** login against the authority's **live**
+login. Those two machines are routinely active on *different accounts*, so a mismatch is
+usually benign — which is why the script only writes `note — live token differs from authority
+(expected when the two are active on different accounts)` and never raises an alert.
+
+The cost of that ambiguity is a confirmed miss. On 2026-08-19 mac-mini-m2 and archs-mac-mini
+were each holding a **self-minted token for the same account the authority held**, roughly
+1h20m from expiry, and the check logged nothing actionable. It was found by hand.
+
+The comparison that would be alertable is **per account, not per live login** — for a given
+email, every machine should hold the same access token. That is well-defined and has no benign
+case:
+
+```bash
+security find-generic-password -s "Claude Code-credentials" -w \
+  | /usr/bin/python3 -c 'import json,sys;o=json.load(sys.stdin)["claudeAiOauth"];print(o["accessToken"][-6:],o["expiresAt"])'
+```
+
+Run it on the authority and every receiver: identical output = converged. Until
+`fleet-health-check` keys on email rather than on whatever is live, **treat convergence as
+unmonitored and check it by hand after any push or repair.** `cux-backup` is useless for this —
+those keychain items are not JSON.
 
 **A single null is not proof of a fault.** The usage endpoint rate-limits (429) under exactly
 the load a busy fleet generates, and a rate-limited probe reports null for a perfectly healthy
@@ -122,6 +148,28 @@ DONE ok=2 deferred=2 failed=0
 - **`ABORT`** → the authority itself holds a dead account. It refuses to push rather than
   overwrite healthy copies elsewhere. This is the one that needs you; see below.
 
+**A run of `ABORT`s is a countdown, not a safe hold.** The guard is correct — publishing a dead
+slot with `--force` would destroy working copies — but while it holds, *the top-ups stop*. The
+receivers keep spending the last credential they were given, and once one reaches its own refresh
+buffer it refreshes, rotates the single-use token, and the race the authority exists to prevent
+restarts on its own.
+
+That is not theoretical: on 2026-08-19 the authority ABORTed every cycle from Aug 18 15:26 to
+Aug 19 02:44 — 11+ hours, at times reporting *2* dead accounts — and by the end two receivers had
+each minted their own token for a shared account. The dead account and the drift were one
+incident, not two.
+
+So the deadline for repairing an ABORT is roughly the receivers' **remaining access-token life**
+(~8h from the last successful push), not "whenever convenient". Check how long you actually have:
+
+```bash
+grep -c ABORT ~/Library/Logs/fleet-refresh.log            # how long has it been holding?
+grep 'DONE' ~/Library/Logs/fleet-refresh.log | tail -1    # last cycle that actually pushed
+```
+
+After repairing, verify the receivers re-converged rather than assuming the next push fixed
+everything — a push reports success even where it did not overwrite the live login.
+
 ## When an alert fires
 
 | Symptom | Meaning | Fix |
@@ -129,7 +177,7 @@ DONE ok=2 deferred=2 failed=0
 | `ABORT … dead on the authority` | The authority can no longer seed the fleet | Repair it with `refresh-claude-account` — Path A (re-seed from a machine that still works) before Path B |
 | Receiver has dead slots | The race fired on that machine | Usually self-heals on the next push (`cswap import --force` clears the dead-token strike). If it recurs, the single-writer invariant is broken |
 | Null headroom, no dead slot | Usage unreadable — often a stray setup-token (403), sometimes transient rate limiting (429) | Confirm with `cswap list --token-status`; `refreshToken: no` means a setup-token got in and cannot rotate |
-| Receiver's `refreshToken` prefix diverges | That machine refreshed on its own | Find what refreshed there; a forced push re-converges it, but the cause will repeat |
+| Receiver's `refreshToken` prefix diverges | That machine refreshed on its own | **Logged as a note, never alerted — and unreliable as written** (see "the divergence signal is not yet trustworthy"). A plain forced push may *not* re-converge it: if that account is the receiver's active slot, import cannot overwrite the live login. Use the switch-away/import/switch-back sequence in `sync-claude-accounts`, then re-check by fingerprint |
 | Host unreachable | Cannot confirm credential health | Not benign — an unreachable machine still holds credentials and may refresh unobserved |
 
 **Never repair on a receiver.** The authority's next push overwrites it. Repair the authority and
@@ -170,5 +218,8 @@ indistinguishable from the race.
 
 - `refresh-claude-account` — repair a dead account, emit `claude-accounts.json`
 - `sync-claude-accounts` — distribute that file; the push cycle wraps it
-- `ssh-keychain-unlock` — the keychain re-locks between SSH sessions, which is why every remote
-  step unlocks in the same invocation
+- `ssh-claude-auth` — installs `~/.claude/unlock-keychain.sh` (its Approach B). The keychain
+  re-locks between SSH sessions, which is why every remote step unlocks in the same invocation.
+  Note that this skill's Approach **A** (a `setup-token`) must never be used on a fleet
+  machine — cux cannot register it and its usage reads 403, so that machine silently drops out
+  of rotation

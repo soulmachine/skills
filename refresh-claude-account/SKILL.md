@@ -59,10 +59,25 @@ cswap auto --once --dry-run --json  # null headroom = unreadable usage; never sw
 `cux list` shows the same accounts as `EXPRD`. Collect the **email and slot number** of every
 dead account.
 
-Two red herrings:
+Three red herrings:
 - `usage unavailable (http-429)` is the usage probe being rate-limited — transient, unrelated
   to expiry. `http-403` is different and real: that credential lacks `user:profile`.
 - cux caches its verdict. A just-healed account keeps showing `EXPRD` until `cux list --refresh`.
+- **cux also shows the reverse — a long-dead account rendered `READY` with usage bars.** Same
+  cache, opposite direction, and far more dangerous because it reads as health and can talk you
+  out of a repair that is genuinely needed. The tell is that the numbers *disagree between
+  machines*: one account polled live at one moment must return one answer, so `38%/91%` on one
+  host and `20%/86%` on another proves both are stale. Observed 2026-08-19 on an account cswap
+  correctly reported dead on all five machines. **cswap's verdict is authoritative here; cux's
+  display is not** — and `cux-backup` keychain items cannot be inspected to settle it, as they
+  are not JSON.
+
+Confirm "dead" against cswap before spending an interactive login on it:
+
+```bash
+cswap list --token-status                     # per slot: fresh/expired + refresh token yes/no
+cswap auto --once --dry-run --json | head -1  # headroomPct null for that slot = unmeasurable
+```
 
 ## 2 — Path A: re-seed from a machine that still works
 
@@ -144,6 +159,45 @@ cswap add --slot <slot>
 cswap switch <original-slot> --force
 ```
 
+### Run 3a–3e as one trapped script, from a separate terminal
+
+Two things make the bare sequence fragile in practice, both observed 2026-08-19:
+
+- **Between 3a and 3e the machine is live on the dead account.** If the user abandons the
+  browser flow — closes the tab, Ctrl-C, authorizes the wrong account — the machine is
+  *stranded* there, and every Claude session on it stays broken until someone notices. A trap
+  makes the restore unconditional.
+- **`cswap add` stores whatever is currently live.** If the browser signed in as the wrong
+  Google/Anthropic account, 3d silently overwrites the target slot with the wrong identity.
+  3c must therefore *gate* 3d, not merely precede it.
+
+Do not run this inside a Claude Code session on the machine being repaired — 3a rewrites the
+machine-global login, so that session flips onto the dead account mid-flight. Use a separate
+terminal.
+
+```bash
+#!/bin/bash
+set -uo pipefail
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+TARGET_EMAIL="someone@example.com"; TARGET_SLOT=1; ORIG_SLOT=2
+
+restore() { cswap switch "$ORIG_SLOT" --force </dev/null \
+            || echo "!! RESTORE FAILED — run: cswap switch $ORIG_SLOT --force"; }
+trap restore EXIT INT TERM                      # survives Ctrl-C and any early exit
+
+cswap switch "$TARGET_SLOT" --force </dev/null || exit 1      # 3a
+claude auth login --email "$TARGET_EMAIL"       || exit 1      # 3b (browser)
+
+GOT="$(claude auth status 2>&1 | /usr/bin/python3 -c \
+  'import json,sys
+try: print(json.loads(sys.stdin.read()).get("email",""))
+except Exception: print("")')"                                 # 3c
+[ "$GOT" = "$TARGET_EMAIL" ] || { echo "authorized as \"$GOT\" — NOT capturing"; exit 1; }
+
+cswap add --slot "$TARGET_SLOT" </dev/null      || exit 1      # 3d
+# 3e happens in the trap
+```
+
 ## 4 — Verify
 
 ```bash
@@ -190,6 +244,11 @@ Then distribute with the `sync-claude-accounts` skill:
 IMPORT_FORCE=1 scripts/push-claude-accounts ~/claude-accounts.json <hosts...>
 rm -f ~/claude-accounts.json
 ```
+
+`N ok, 0 failed` is **not** proof the receivers took the repaired credential — a machine whose
+active slot is that account keeps its old one and still reports success. Verify by fingerprint
+on every host and fix any that did not converge; both the check and the repair sequence are in
+`sync-claude-accounts` ("After you push, verify convergence").
 
 On a fleet with a refresh authority, repairing **on the authority** is enough — its scheduled
 push distributes the fix on the next cycle, and `fleet-refresh-credentials` has the same
@@ -257,8 +316,15 @@ overwrite semantics, and the `claude auth status` JSON shape. Also directly obse
 403-vs-200 split on `/api/oauth/usage` between a setup-token and an OAuth login for the same
 subscription, and `CLAUDE_CODE_OAUTH_TOKEN` overriding a different live keychain login.
 
-Path B's interactive `claude auth login` step is documented from the CLI surface — it needs a
-browser and a genuinely dead account, so it has not been executed here.
+Path B was executed end to end on this fleet 2026-08-19, on an account dead on all five
+machines (so Path A was genuinely unavailable). Confirmed in that run: `claude auth login
+--email`, the `claude auth status` JSON shape (`loggedIn`, `authMethod`, `apiProvider`,
+`email`, …), `cswap add --slot N` capturing the new login into the intended slot, and the
+repaired account going from `headroomPct: null` to a real percentage — i.e. measurable, and
+therefore rotatable, again. The trapped-script form above is what that run used.
+
+Not yet exercised: the 3c mismatch branch (authorizing the wrong account) has never actually
+fired, so its refusal path is reasoned rather than observed.
 
 In the comparison table, items flagged *observed* / *undocumented* (token lifetimes, the exact
 credential structure, scope strings, refresh-token rotation) are behaviour seen in practice

@@ -152,7 +152,7 @@ case "$kc_rc" in
   refreshToken present and user:profile in scopes means OAuth, and the keychain write is
   what failed. Accounts were still imported into cswap." 4 ;;
     *)  die "login keychain is locked (security rc=$kc_rc) — cux add cannot read credentials.
-  Fix: install ~/.claude/unlock-keychain.sh (see the ssh-keychain-unlock skill),
+  Fix: install ~/.claude/unlock-keychain.sh (see the ssh-claude-auth skill, Approach B),
   or run this from a GUI session on that machine.
   Accounts were still imported into cswap." 2 ;;
 esac

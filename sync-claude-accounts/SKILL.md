@@ -73,6 +73,19 @@ To run the per-machine step alone (already on the box):
 >    cux step with exit 4, and those accounts would be unrotatable anyway. See point 1 above and
 >    "cux cannot hold setup-tokens" below.
 
+> **After you push, verify convergence.** `done: N ok, 0 failed` does **not** mean the receivers
+> took the credential — a machine whose active slot is the pushed account keeps its old one and
+> still reports success (see "cannot update the live login of the ACTIVE slot" below). Confirm by
+> fingerprint on every host, including the authority:
+>
+> ```bash
+> security find-generic-password -s "Claude Code-credentials" -w \
+>   | /usr/bin/python3 -c 'import json,sys;o=json.load(sys.stdin)["claudeAiOauth"];print(o["accessToken"][-6:],o["expiresAt"])'
+> ```
+>
+> Every machine must print the same value. Any host that differs did not converge; repair it with
+> the switch-away/import/switch-back sequence below, then re-check.
+
 ## What the per-machine script does
 
 1. Preflight `cswap` + `cux` (including that cux's native binary really downloaded).
@@ -93,12 +106,69 @@ These are the failure modes this skill exists to encode — do not "simplify" th
   requires making each one live first. There is no flag to feed it credentials directly.
 - **`cswap switch` needs `--force`.** Switching to an account that is *already active*
   prints `Already on Account-N` and declines to rewrite the live login from the stored
-  backup — so `cux add` would silently capture **stale** credentials.
+  backup — so `cux add` would silently capture **stale** credentials. `--force` fixes the
+  *refusal*, but not the underlying limitation — see the next bullet, which is the one that
+  actually bites on a recurring push.
+
+- **`cswap import --force` cannot update the live login of the ACTIVE slot, and the fix it
+  prints does not work.** Import writes each account's *stored* credential. When one of those
+  accounts is the machine's current live login, it says so:
+
+  ```
+  Note: <email> is your current live login — activate the imported credentials with:
+        cswap --switch-to N --force
+  ```
+
+  Follow that advice and **nothing changes**: on an already-active slot `cswap switch N --force`
+  reports `Activated Account-N` while leaving the live keychain credential untouched. (Mechanism
+  inferred, not documented: switch appears to back live→store *before* restoring store→live, so
+  the freshly imported credential is overwritten by the stale live one and then restored over
+  itself.)
+
+  Consequence: a receiver whose active slot is the account you are pushing **keeps its old
+  credential while the per-machine script reports success.** Observed 2026-08-19 — a
+  `4 ok, 0 failed` push left mac-mini-m2 and archs-mac-mini on tokens they had minted
+  themselves (~1h20m of life) while mac-mini-2018 and mac-studio-m3 correctly took the pushed
+  one (7h47m). Nothing in the exit status or the log distinguishes the two outcomes.
+
+  The working sequence — all in **one** ssh invocation, since the keychain re-locks between them:
+
+  ```bash
+  cswap switch <other-slot> --force            # target slot is no longer live
+  cswap import <file> --force                  # its store now takes the pushed credential
+  cswap switch <target-slot> --force           # live := store = pushed credential
+  cux add --slot <cux-slot> --alias <alias>    # resync cux's separate backup
+  ```
+
+  Read `<cux-slot>`/`<alias>` from that machine's own `~/.cux/state.json`; they differ per host.
+
+- **Verify a push by credential fingerprint, not by cswap's display.** `cswap list
+  --token-status` prints `active profile: fresh, refresh token yes` for a credential that is
+  perfectly valid but a *different generation* than the one you just pushed — it describes the
+  credential's shape, not its identity, so it cannot detect divergence. Compare the live token
+  against the export instead:
+
+  ```bash
+  security find-generic-password -s "Claude Code-credentials" -w \
+    | /usr/bin/python3 -c 'import json,sys;o=json.load(sys.stdin)["claudeAiOauth"];print(o["accessToken"][-6:],o["expiresAt"])'
+  ```
+
+  Identical tails across the fleet = converged. **Distinct tails for one account mean each of
+  those machines has been refreshing on its own** — the single-use-refresh-token race is
+  already running, and the losers are holding spent refresh tokens that will fail on next use.
+  Do not try to read `cux-backup` for this: those keychain items are not JSON and do not parse.
+
+- **The dead-token-strike warning tells you whether a repair actually took.** Re-importing a
+  credential the strike already condemned prints, indented under the `Overwrote` line:
+  `└ this import holds the same credential generation the strike condemned; another permanent
+  auth failure will quarantine it again`. Its **absence** on a previously-dead account is the
+  confirmation that the export carries a genuinely new generation rather than a re-publication
+  of the condemned one.
 - **The macOS login keychain is locked in SSH sessions.** `cux add` reads it directly and
   dies with `security find-generic-password ... exit 36` (`errSecInteractionNotAllowed`).
   It does *not* fall back to `~/.claude/.credentials.json`, and no env var forces file
   mode. `cswap` degrades gracefully, so import still works. Fix with
-  `~/.claude/unlock-keychain.sh` — see the `ssh-keychain-unlock` skill. Two refinements to
+  `~/.claude/unlock-keychain.sh` — see the `ssh-claude-auth` skill (Approach B). Two refinements to
   this, both learned the hard way, are spelled out below: the unlock only holds *within
   one SSH invocation*, and exit **44** is a different condition that unlocking cannot fix.
 - **Never pipe `cswap import`.** `cswap import f | tail -1 && ...` takes its exit status

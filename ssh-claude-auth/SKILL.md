@@ -1,6 +1,6 @@
 ---
 name: ssh-claude-auth
-description: Fix Claude Code appearing logged-out over SSH on a headless macOS machine — its credentials sit in the login keychain, which stays locked in SSH/headless sessions. Offers two fixes and asks the user to choose: a keychain-free long-lived OAuth token (recommended), or auto-unlocking the login keychain with a stored password. Use when Claude Code shows unauthenticated over SSH on a Mac, when setting up a Mac mini or headless Mac for remote/CI Claude Code use, or when `security show-keychain-info` reports the login keychain locked.
+description: Fix Claude Code appearing logged-out over SSH on a headless macOS machine — its credentials sit in the login keychain, which stays locked in SSH/headless sessions. Offers two fixes and asks the user to choose: a keychain-free long-lived setup-token, or auto-unlocking the login keychain with a stored password (required on any machine in a cux-rotated fleet, where a setup-token cannot be registered or measured). Use when Claude Code shows unauthenticated over SSH on a Mac, when setting up a Mac mini or headless Mac for remote/CI Claude Code use, when installing `~/.claude/unlock-keychain.sh` for the fleet credential skills, or when `security show-keychain-info` reports the login keychain locked.
 ---
 
 # Claude Code auth on a headless Mac over SSH
@@ -10,7 +10,11 @@ description: Fix Claude Code appearing logged-out over SSH on a headless macOS m
 Claude Code (subscription / OAuth login) stores its credentials in the macOS **login keychain**, encrypted with the user's macOS login password. A GUI login unlocks it automatically; an SSH / headless session does **not**, so Claude Code looks logged out until the keychain is unlocked. Two facts shape the fix:
 
 - `sudo` cannot help — unlocking is *decryption*, and root has privilege but not the password.
-- macOS Claude Code cannot use a plaintext credential file the way Linux does — the credential either lives in an unlocked keychain, or is replaced by a token.
+- On macOS the keychain is the credential's *intended* home; `~/.claude/.credentials.json` is not the supported Linux-style alternative you can simply opt into.
+
+**But do not read that second point as "the file never exists on macOS."** It does, and mistaking its presence for a healthy configuration wastes hours. `cswap` degrades to writing `~/.claude/.credentials.json` whenever the keychain is unavailable mid-operation, so a full OAuth credential — `refreshToken` present, complete scopes — can end up living there on a Mac. Observed 2026-08-19: the file was present (mode 600) on both headless fleet receivers and **absent** on the GUI machine, exactly tracking which ones had a locked keychain.
+
+Why it matters here: a credential in that file is invisible to `cux`, which reads only the keychain item. `security find-generic-password -s "Claude Code-credentials"` then returns **44** (`errSecItemNotFound`), which looks identical to a setup-token login but is not — unlocking the keychain and re-activating the slot (`cswap switch <active-slot> --force`) makes cswap write the item back. Distinguish rc **36** (locked — unlock and retry) from rc **44** (no item at all — unlocking changes nothing).
 
 ## Step 1 — Confirm the diagnosis
 
@@ -22,7 +26,18 @@ security find-generic-password -s "Claude Code-credentials" ~/Library/Keychains/
 
 ## Step 2 — Ask the user which approach (do NOT choose for them)
 
-Use **AskUserQuestion** with the trade-offs below. List Approach A first, labeled "(Recommended)" — unless the user drives this machine's Claude Code remotely (see caveat), in which case recommend B.
+> **First: is this machine part of a cux-rotated Claude fleet?** If it is, **Approach A is
+> disqualified** — go straight to Approach B and skip the question. A `setup-token` carries
+> `user:inference` alone, so `/api/oauth/usage` answers **403**; `cux add` cannot register the
+> login at all (it reads only the `Claude Code-credentials` keychain item, and fails with
+> **exit 0**, so the failure is silent). The machine then looks configured while sitting
+> permanently outside rotation, invisible to both rotators. Verified against cux 0.3.9 /
+> cswap 0.25.0. See `sync-claude-accounts` and `refresh-claude-account`, which both exist to
+> keep full OAuth logins working across a fleet and explicitly withdraw the setup-token
+> recommendation. Tell the two credential kinds apart by shape — `refreshToken: false` /
+> `scopes: ['user:inference']` — never by token prefix (both start `sk-ant-oat01-`).
+
+Use **AskUserQuestion** with the trade-offs below. List Approach A first, labeled "(Recommended)" — unless the machine is in a fleet (above) or the user drives this machine's Claude Code remotely (see caveat), in which case recommend B.
 
 | | A. Long-lived OAuth token | B. Auto-unlock keychain |
 |---|---|---|
@@ -64,3 +79,16 @@ Open a **fresh** SSH session and run `claude` — it should be logged in with no
 | `lib.sh` | Shared helpers; single source of truth for the `# >>> … >>>` block markers |
 
 Switching approaches = run the new setup, then the old teardown. Manual walkthrough, no-stored-password variant, command quick-reference, and common mistakes: [REFERENCE.md](REFERENCE.md)
+
+## Related
+
+Approach B's `~/.claude/unlock-keychain.sh` is a hard dependency of the fleet credential skills —
+`cux add` reads the keychain directly and cannot fall back to a file, and the keychain **re-locks
+between SSH sessions**, so every remote step must unlock in the *same* invocation as the command
+that needs it.
+
+- `sync-claude-accounts` — distributes OAuth credentials across a fleet; calls the unlock script on every receiver
+- `refresh-claude-account` — repairs a dead account back to a full OAuth login
+- `claude-fleet-health` — the scheduled agents and alerts over both
+
+All three assume **full OAuth logins**, which is why Approach A is disqualified on fleet machines (Step 2).
