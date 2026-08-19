@@ -334,7 +334,7 @@ them before depending on a specific number.
 ## Related
 
 - `sync-claude-accounts` — distributes the `claude-accounts.json` this skill produces
-- `claude-fleet-health` — the scheduled push/monitor agents that call both, and the alerts
+- `sync-claude-accounts` — the scheduled push/monitor agents that call both, and the alerts
   (`ABORT`, dead slots, null headroom) that send you here in the first place
 
 ## Security

@@ -89,6 +89,6 @@ that needs it.
 
 - `sync-claude-accounts` — distributes OAuth credentials across a fleet; calls the unlock script on every receiver
 - `refresh-claude-account` — repairs a dead account back to a full OAuth login
-- `claude-fleet-health` — the scheduled agents and alerts over both
+- `sync-claude-accounts` — the scheduled agents and alerts over both
 
 All three assume **full OAuth logins**, which is why Approach A is disqualified on fleet machines (Step 2).

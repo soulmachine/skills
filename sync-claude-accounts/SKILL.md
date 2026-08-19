@@ -1,12 +1,17 @@
 ---
 name: sync-claude-accounts
-description: Distributes full OAuth Claude Code credentials (claude-accounts.json) from a single designated refresh-authority machine to the rest of a macOS fleet, importing them into claude-swap and registering each account with cux so unattended sessions keep rotating. Use when syncing or propagating Claude Code logins across Macs or a fleet, when setting up or running the recurring fleet credential push, or when the user mentions claude-accounts.json, accounts.json, cswap import, cux add, claude-swap, refresh authority, or adding multiple Claude accounts to remote machines.
+description: Distribute full OAuth Claude Code credentials (claude-accounts.json) from a single designated refresh-authority Mac to the rest of a fleet, and operate the scheduled automation that does it — the com.claude.fleet-refresh and com.claude.fleet-health LaunchAgents, their logs, and the proactive refresh that keeps receivers from ever rotating a token themselves. Use when syncing or propagating Claude Code logins across Macs or a fleet, when setting up, auditing, or reading a cycle of the recurring credential push, when a scheduled push seems to have stopped, when checking whether the fleet is healthy, or when the user mentions claude-accounts.json, cswap import, cux add, claude-swap, refresh authority, or fleet-refresh-credentials. To repair an account that is already dead — "re-login needed", EXPRD, null headroom — use the refresh-claude-account skill instead.
 ---
 
 # Sync Claude Accounts
 
-Push a claude-swap export to N macOS machines and register every account with cux.
-Accounts are **auto-discovered** from the export — no email addresses are hardcoded.
+Distributing Claude Code OAuth credentials across a macOS fleet, and running the scheduled
+automation that keeps them alive. The push mechanism and the agents that drive it are one
+system, documented together.
+
+> **The 29 hard-won constraints that make this fiddly live in [REFERENCE.md](REFERENCE.md).**
+> Read it when something surprises you — an import that reports success but changes nothing, a
+> `keychain unavailable` that isn't a lock, a cux slot number that doesn't match cswap's.
 
 ## The model this skill implements
 
@@ -115,290 +120,6 @@ To run the per-machine step alone (already on the box):
    unique across slots. A mismatch logs `MISMATCH` and sets exit 3 rather than passing silently.
 8. Restore whichever account was active before, and delete the credentials file.
 
-## Non-obvious constraints
-
-These are the failure modes this skill exists to encode — do not "simplify" them away:
-
-- **`cux add` only captures the currently logged-in account.** Registering N accounts
-  requires making each one live first. There is no flag to feed it credentials directly.
-- **`cswap switch` needs `--force`.** Switching to an account that is *already active*
-  prints `Already on Account-N` and declines to rewrite the live login from the stored
-  backup — so `cux add` would silently capture **stale** credentials. `--force` fixes the
-  *refusal*, but not the underlying limitation — see the next bullet, which is the one that
-  actually bites on a recurring push.
-
-- **`cswap import --force` cannot update the live login of the ACTIVE slot, and the fix it
-  prints does not work.** Import writes each account's *stored* credential. When one of those
-  accounts is the machine's current live login, it says so:
-
-  ```
-  Note: <email> is your current live login — activate the imported credentials with:
-        cswap --switch-to N --force
-  ```
-
-  Follow that advice and **nothing changes**: on an already-active slot `cswap switch N --force`
-  reports `Activated Account-N` while leaving the live keychain credential untouched. (Mechanism
-  inferred, not documented: switch appears to back live→store *before* restoring store→live, so
-  the freshly imported credential is overwritten by the stale live one and then restored over
-  itself.)
-
-  Consequence: a receiver whose active slot is the account you are pushing **keeps its old
-  credential while the per-machine script reports success.** Observed 2026-08-19 — a
-  `4 ok, 0 failed` push left mac-mini-m2 and archs-mac-mini on tokens they had minted
-  themselves (~1h20m of life) while mac-mini-2018 and mac-studio-m3 correctly took the pushed
-  one (7h47m). Nothing in the exit status or the log distinguishes the two outcomes.
-
-  The working sequence — all in **one** ssh invocation, since the keychain re-locks between them:
-
-  ```bash
-  cswap switch <other-slot> --force            # target slot is no longer live
-  cswap import <file> --force                  # its store now takes the pushed credential
-  cswap switch <target-slot> --force           # live := store = pushed credential
-  cux add --slot <cux-slot> --alias <alias>    # resync cux's separate backup
-  ```
-
-  Read `<cux-slot>`/`<alias>` from that machine's own `~/.cux/state.json`; they differ per host.
-
-  **When you need BOTH slots fresh, that sequence is not enough — you must import TWICE.**
-  Step 3's `switch` backs the *current* live credential into the slot it is leaving, and on a
-  recovery push that credential is the stale/empty one, so it clobbers the fresh import the
-  step-2 import just wrote to that other slot. Verified 2026-08-19 on all four receivers:
-
-  ```bash
-  cswap switch <other-slot>  --force   # 1. leave the active slot
-  cswap import <file> --force          # 2. active slot's store := pushed
-  cswap switch <target-slot> --force   # 3. live := pushed  BUT clobbers <other-slot>'s store
-  cswap import <file> --force          # 4. repair <other-slot>'s store (it is not live now)
-  ```
-
-  After step 4 every store holds the pushed credential and the live login is correct, so the
-  subsequent per-slot `switch` + `cux add` loop only ever backs up *fresh* credentials and is
-  safe.
-
-  **As of 2026-08-19 `scripts/sync-claude-accounts` does this itself** — it reads the active
-  slot, switches away, imports, switches back, and imports again, so a recovery push no longer
-  needs the sequence driven by hand. It also unlocks the keychain *before* the dance rather than
-  after: every step here is a cswap write, and cswap silently degrades to
-  `~/.claude/.credentials.json` whenever the keychain is unavailable mid-operation, which would
-  put the credential exactly where cux cannot see it.
-
-  It now **verifies rather than assumes**. After making each slot live, it compares the live
-  access-token tail against the export and logs
-
-  ```
-  MISMATCH: slot 1 work@example.com — live ...a1b2c3 but export has ...d4e5f6; credential did not take
-  ```
-
-  setting exit 3. That closes the original complaint about this failure — that nothing in the
-  exit status or the log distinguished a real push from a silently stale one. Only the
-  single-account case is still unprotected: with one slot there is nowhere to switch away *to*,
-  so the dance cannot run — but the MISMATCH check still reports the outcome instead of letting
-  it pass as success.
-
-- **Verify a push by credential fingerprint, not by cswap's display.** `cswap list
-  --token-status` prints `active profile: fresh, refresh token yes` for a credential that is
-  perfectly valid but a *different generation* than the one you just pushed — it describes the
-  credential's shape, not its identity, so it cannot detect divergence. Compare the live token
-  against the export instead:
-
-  ```bash
-  security find-generic-password -s "Claude Code-credentials" -w \
-    | /usr/bin/python3 -c 'import json,sys;o=json.load(sys.stdin)["claudeAiOauth"];print(o["accessToken"][-6:],o["expiresAt"])'
-  ```
-
-  Identical tails across the fleet = converged. **Distinct tails for one account mean each of
-  those machines has been refreshing on its own** — the single-use-refresh-token race is
-  already running, and the losers are holding spent refresh tokens that will fail on next use.
-  Do not try to read `cux-backup` for this: those keychain items are not JSON and do not parse.
-
-- **The dead-token-strike warning tells you whether a repair actually took.** Re-importing a
-  credential the strike already condemned prints, indented under the `Overwrote` line:
-  `└ this import holds the same credential generation the strike condemned; another permanent
-  auth failure will quarantine it again`. Its **absence** on a previously-dead account is the
-  confirmation that the export carries a genuinely new generation rather than a re-publication
-  of the condemned one.
-- **The ABORT interlock can deadlock, because a strike flag is not a dead token.** cswap's
-  `re-login needed — refresh token dead` is a permanent verdict about the *refresh* token,
-  recorded when one refresh attempt returned `invalid_grant`. The account's **access** token
-  is a separate credential and frequently still works for hours afterwards. Both
-  `fleet-refresh-credentials` and this skill's preflight gate count that flag
-  (`grep -c 're-login needed'`) and refuse to push — so a fleet where every receiver is dead
-  and the authority is merely *flagged* enters a stable deadlock: the only machine that can
-  seed the fleet refuses to, on the strength of a flag whose credential still works.
-
-  Break the tie with evidence, not inference. Probing an **access** token is read-only and
-  consumes nothing single-use (unlike a refresh token, which rotates on every use):
-
-  ```bash
-  F=/tmp/claude-accounts.json
-  /usr/bin/python3 -c 'import json,sys;[print(a["email"],a["credentials"]["claudeAiOauth"]["accessToken"]) for a in json.load(open(sys.argv[1]))["accounts"]]' "$F" \
-  | while read -r email tok; do
-      echo "$email -> HTTP $(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tok" https://api.anthropic.com/api/oauth/usage)"
-    done
-  ```
-
-  (Deliberately no heredoc and no multi-line Python: this file is read as raw markdown, so a
-  snippet whose correctness depends on starting at column 0 breaks when copied out of an
-  indented bullet. Every line above is indentation-insensitive.)
-
-  `200` means the credential is usable and pushing it is strictly better than what a receiver
-  holding `no credentials` has. Pair it with a per-receiver fingerprint survey to confirm the
-  gate's real precondition — that no receiver holds a working copy — and only then override.
-  Observed 2026-08-19: authority flagged dead on one account, every receiver empty or
-  expired, both exported access tokens returning `200`; the push repaired all four and the
-  authority's own strike cleared itself as soon as cswap could poll usage successfully.
-
-  A useful corroborating signal on import: `└ cleared this slot's stored dead-token strike`
-  **without** the `same credential generation the strike condemned` warning means the export
-  carries a genuinely new generation, so its refresh token is probably healthy too.
-
-- **`keychain unavailable — locked or in use` can be masking `no credentials`.** The message
-  reads as transient, so it invites a retry; it is emitted whenever cswap cannot read the item,
-  including when the item is an *empty* credential. Re-read with the keychain unlocked in the
-  **same** invocation before believing the account is merely locked:
-
-  ```bash
-  ssh host '~/.claude/unlock-keychain.sh >/dev/null 2>&1; cswap list'
-  ```
-
-  Observed 2026-08-19: mac-mini-m2 and archs-mac-mini both reported `keychain unavailable`, and
-  both turned out to hold `no credentials` — a materially different state, since a locked
-  keychain needs no repair and an empty credential needs a push.
-
-- **cux slot numbers are independent of cswap slot numbers, and are routinely inverted.** The
-  two tools keep separate state with separate numbering; the same account can be cswap slot 1
-  and cux slot 2 on one host and the reverse on the next. On 2026-08-19 mac-mini-2018 had
-  cswap slot 1 = one account → cux slot 2, while another host had them aligned. **Map by
-  email**, reading each machine's own `~/.cux/state.json`, and never carry a slot number across
-  from cswap or across hosts:
-
-  ```bash
-  /usr/bin/python3 -c 'import json,sys;s=json.load(open(sys.argv[1]));print(next((str(a["slot"])+" "+str(a.get("alias") or "") for a in s.get("accounts",{}).values() if a.get("email")==sys.argv[2]),"not found"))' ~/.cux/state.json <email>
-  ```
-
-  (One line on purpose — see the note under the ABORT bullet above.)
-
-- **The macOS login keychain is locked in SSH sessions.** `cux add` reads it directly and
-  dies with `security find-generic-password ... exit 36` (`errSecInteractionNotAllowed`).
-  It does *not* fall back to `~/.claude/.credentials.json`, and no env var forces file
-  mode. `cswap` degrades gracefully, so import still works. Fix with
-  `~/.claude/unlock-keychain.sh` — see the `ssh-claude-auth` skill (Approach B). Two refinements to
-  this, both learned the hard way, are spelled out below: the unlock only holds *within
-  one SSH invocation*, and exit **44** is a different condition that unlocking cannot fix.
-- **Never pipe `cswap import`.** `cswap import f | tail -1 && ...` takes its exit status
-  from `tail`, masking `import file not found` and continuing as if it worked.
-- **`cux`'s npm postinstall soft-fails with exit 0.** It downloads a native binary from
-  GitHub releases; on failure `npm install` still reports success. Verify with `cux version`.
-- **`cswap import` skips accounts that already exist** unless `--force`, but it *does*
-  auto-heal slots quarantined as refresh-token-dead. A "0 imported, 2 skipped" result is
-  normal and usually fine; use `--force` only to make the export authoritative.
-- **Syncing an OAuth account to N machines eventually kills it on N−1 of them.** The export
-  carries a `refreshToken`, and the server rotates that token on every use — it is single-use.
-  Once two machines hold the same one, the first to refresh — Claude Code on the next message,
-  cux freshening a target before it swaps, or a background usage poll — invalidates every other copy, and the losers get
-  `invalid_grant` → `re-login needed — refresh token dead`. One strike is permanent. This is a
-  race with no stable winner, so it presents as accounts dying at random days later, not at
-  import time.
-
-  **The fix is a single-writer refresh authority, not a different credential.** Designate
-  exactly ONE machine as the only one allowed to refresh, and have it push its live credentials
-  to the others often enough that no receiver ever reaches its refresh buffer — a machine that
-  only *consumes* an access token never rotates anything. See "Recurring use" below.
-
-  Setup-tokens look like an easier answer (no refresh token, so nothing to race) and an earlier
-  version of this skill recommended them. **That recommendation is withdrawn**: cux cannot manage
-  them and they cannot be measured, so an all-setup-token fleet loses automatic rotation
-  entirely — see the next two bullets. When an account has already died, repair it with the
-  `refresh-claude-account` skill, which restores a full OAuth login and emits the
-  `claude-accounts.json` this skill distributes.
-
-- **cux cannot hold setup-tokens — so the fix above and this skill's cux step are mutually
-  exclusive.** Verified against cux 0.3.9 (the current release) on 2026-08-17. cux reads the
-  live login *only* from the `Claude Code-credentials` login-keychain item. An OAuth login
-  populates that item; a setup-token login does not — it writes `~/.claude/.credentials.json`
-  and nothing else. So with a setup-token live:
-
-  ```
-  $ cux add --slot 2 --alias arch-dev
-  cux: no active Claude Code login found — run `claude login` first    # and exits rc=0
-  ```
-
-  Note the **exit 0**: the failure is silent, so a loop that trusts `$?` reports success while
-  registering nothing. There is no config key for a credential source (`cux config keys` has
-  none) and no `cux add-token` counterpart to `cswap add-token`.
-
-  Practical consequence: you can have cux-managed rotation **or** cross-machine-durable
-  setup-tokens, not both. **This skill resolves that in favour of cux and OAuth**, because
-  only cux can continue an unattended session through a rate limit — `cswap auto` would
-  tolerate setup-tokens as a credential *kind*, but it cannot measure them either (403, next
-  bullet but one), so that trade buys nothing and costs session continuity. Keep OAuth, keep
-  cux, and repair accounts with the `refresh-claude-account` skill as they die.
-
-- **`security` exit 36 and 44 mean opposite things.** `36` (`errSecInteractionNotAllowed`) is a
-  locked keychain — unlock and retry. `44` (`errSecItemNotFound`) means there is no item at all;
-  unlocking changes nothing. A probe that only checks "rc != 0" reports the second case as a
-  phantom lock failure.
-
-- **rc=44 does NOT mean "setup-token".** It means the credential is not in the keychain, and a
-  perfectly good OAuth login can end up there: cswap degrades to writing
-  `~/.claude/.credentials.json` whenever the keychain is unavailable mid-operation, and the
-  credential then stays in the file where cux cannot see it. Observed 2026-08-17 on a headless
-  Mac Studio — `refreshToken` present, full scope set including `user:profile`, no keychain
-  item, and the sync failing with exit 4 as though a setup-token were involved.
-  **The repair is `cswap switch <active-slot> --force` with the keychain unlocked**, which makes
-  cswap write the item back; the per-machine script now attempts this automatically before
-  failing. Tell the two causes apart by the credential's own shape — `refreshToken` present and
-  `user:profile` in scopes means OAuth and a failed keychain write, not a setup-token.
-
-- **The login keychain re-locks between SSH sessions.** `ssh host 'unlock-keychain.sh'` followed
-  by a separate `ssh host 'cux add'` does not work — the second session is locked again. The
-  unlock must run in the *same* invocation as the command that needs it.
-
-- **`cswap switch <email>` is ambiguous once two slots share an email**, which happens routinely:
-  cswap keys accounts on `organizationUuid`, so an org-less (setup-token) export imported onto a
-  machine whose slots carry a real org uuid **appends new slots** rather than matching them.
-  `switch` then prompts `Enter account number to switch to:` and, with stdin closed, dies on
-  `EOFError`. Always switch by **slot number** — `cswap list --json` gives `.accounts[].number`.
-
-- **`cswap remove` prompts and has no `--force`.** It asks `Are you sure ... [y/N]` and dies on
-  `EOFError` if fed `/dev/null`. Answer it with a herestring (`<<<"y"`), not a pipe, so the exit
-  status stays cswap's.
-
-- **Back up `~/.cux/state.json` before any `cux remove`.** Observed 2026-08-17: on a state
-  holding duplicate emails, `cux remove --force <slot>` emptied `accounts` entirely instead of
-  dropping the one slot, taking the surviving labelled entries with it. Rebuilding meant
-  re-running `cswap switch` + `cux add --slot N --alias NAME` per account. `~/.cux/accounts/`
-  holds no recovery copy, and cux writes no `.bak`.
-
-- **`cswap` verbs take the path BEFORE flags.** argparse maps the `import` verb onto
-  `--import`, which consumes the next token as its argument, so `cswap import --force <file>`
-  dies with `argument --import: expected one argument`. Write `cswap import <file> --force`.
-  Same shape for `cswap export <file> --account <num|email>`.
-
-- **`cux add --slot N --alias NAME` refreshes in place; bare `cux add` appends.** The pinned
-  form prints `Refreshed slot N (...)` instead of `Added slot N (...)`, which is what makes a
-  *recurring* sync idempotent. Without it, every run appends a fresh unlabelled duplicate.
-  Read the mapping from each machine's own `~/.cux/state.json` — slot order and alias strings
-  genuinely differ per machine (`arch-dev` on one, `arch-dev-techarchaut` on another, and the
-  email→slot mapping is inverted between hosts).
-
-- **cux caches its usage verdict.** A just-healed account keeps showing `EXPRD` with no usage
-  until cux re-polls, which makes a successful repair look like a failure and keeps the account
-  out of rotation. `cux list --refresh` clears it; the sync script now does this automatically.
-
-- **cux and cswap keep SEPARATE credential backups**, both in the login keychain: services
-  `cux-backup` and `claude-swap`. `~/.cux/accounts/*/oauth.json` holds only profile metadata,
-  no tokens. Anything that redistributes credentials must refresh **both**, or cux will swap in
-  an already-rotated refresh token from its own stale copy.
-
-- **A setup-token CAN live in the keychain.** An earlier note here claimed setup-token logins
-  never populate `Claude Code-credentials`; that is not reliably true — on mac-mini-m2 the
-  setup-token was in the keychain (so `cux add` worked), while on mac-mini-2018 the same kind of
-  login landed only in `~/.claude/.credentials.json` (so `cux add` failed with rc=44). What is
-  *always* true is the scope limit: `user:inference` only, so `/api/oauth/usage` returns 403 and
-  neither cux nor `cswap auto` can measure the account. Identify a setup-token by
-  `refreshToken: false` / `scopes: ['user:inference']`, not by where it is stored.
-
 ## Prerequisites per machine
 
 `uv tool install claude-swap` and `npm install -g @inulute/cux` (which needs Node ≥18 —
@@ -427,7 +148,8 @@ this skill: it exports, then calls `push-claude-accounts` with `IMPORT_FORCE=1` 
 deferring any machine with a live cux session unless its token is nearly expired.
 
 **Operating those agents — reading a cycle, what each alert means, changing the cadence — is
-the `claude-fleet-health` skill.** This skill covers the push mechanism itself.
+covered below**, from "What is running" onward. The push mechanism and the automation that
+drives it were separate skills until 2026-08-19; they are one system and are documented together.
 
 Three things that design must respect:
 
@@ -507,7 +229,280 @@ is a setup-token so cux cannot register it.
 `2` and `4` both mean "cswap is fine, cux is not", but only `2` is worth retrying —
 `4` is the structural limitation above and will recur on every run.
 
+## What is running
+
+Two LaunchAgents on the authority, both loaded and verified (`last_exit=0`):
+
+| Agent | Cadence | Does |
+|---|---|---|
+| `com.claude.fleet-refresh` | 15 min | Exports live credentials, pushes to the 4 receivers with `IMPORT_FORCE=1` |
+| `com.claude.fleet-health` | hourly | Alerts on dead slots / null headroom / unreachable hosts |
+
+Backing files:
+
+| Path | Role |
+|---|---|
+| `sync-claude-accounts/scripts/fleet-refresh-credentials` | The push cycle, version-controlled here. `--dry-run` reports what it would do without touching anything. `FLEET_HOSTS="a b c"` targets a different fleet |
+| `sync-claude-accounts/scripts/claude-refresh-export` | Proactively refreshes near-expiry accounts inside an export, in place, using claude-swap's own OAuth code. Called by `proactive_refresh()`; must run on claude-swap's venv python, which the caller discovers |
+| `~/.local/bin/fleet-refresh-credentials`, `~/.local/bin/claude-refresh-export` | **Symlinks into the two paths above.** Deliberately not copies: a copy drifts silently, and on 2026-08-19 the deployed script and the repo had already diverged. A broken symlink fails loudly in `fleet-refresh.err.log` instead |
+| `~/.local/bin/fleet-health-check` | The monitor. `NOTIFY=0` suppresses the desktop notification |
+| `sync-claude-accounts/launchd/*.plist` | The two agent definitions, version-controlled here with `__HOME__` in place of the home directory (launchd needs absolute paths and does not expand `$HOME`) |
+| `~/Library/LaunchAgents/com.claude.fleet-refresh.plist` | Installed copy. `StartInterval` 900 (15 min; was 1800 until 2026-08-19), `RunAtLoad` true |
+| `~/Library/LaunchAgents/com.claude.fleet-health.plist` | Installed copy. `StartInterval` 3600 |
+| `~/Library/Logs/fleet-refresh.log`, `fleet-health.log` | Per-cycle transcripts |
+| `…/fleet-refresh.err.log`, `fleet-health.err.log` | Should stay empty; content here means the agent itself is failing |
+
+Check both are alive:
+
+```bash
+launchctl list | grep -E 'fleet-refresh|fleet-health'    # 3rd column = label, 2nd = last exit
+grep -vE '^\s' ~/Library/Logs/fleet-refresh.log | tail -8
+```
+
+## Installing or re-installing the agents
+
+The plists are checked in as templates, so unlike the scripts they cannot be symlinked —
+launchd requires absolute paths. Render and load them:
+
+```bash
+REPO=~/github.com/soulmachine/skills/sync-claude-accounts/launchd
+for f in com.claude.fleet-refresh com.claude.fleet-health; do
+    sed "s#__HOME__#$HOME#g" "$REPO/$f.plist" > ~/Library/LaunchAgents/$f.plist
+    plutil -lint ~/Library/LaunchAgents/$f.plist
+    launchctl bootout  "gui/$(id -u)/$f" 2>/dev/null
+    launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/$f.plist
+done
+```
+
+Because the installed copy is a copy, it **can drift** from the repo — the one thing the
+symlinked scripts are immune to. Check with the same render:
+
+```bash
+for f in com.claude.fleet-refresh com.claude.fleet-health; do
+    sed "s#__HOME__#$HOME#g" "$REPO/$f.plist" | diff -q - ~/Library/LaunchAgents/$f.plist \
+        && echo "$f: in sync" || echo "$f: DRIFTED"
+done
+```
+
+## Changing the schedule
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.claude.fleet-refresh.plist
+# edit StartInterval, then:
+plutil -lint ~/Library/LaunchAgents/com.claude.fleet-refresh.plist
+launchctl load  ~/Library/LaunchAgents/com.claude.fleet-refresh.plist
+```
+
+`RunAtLoad` on the refresh agent means loading it fires a cycle immediately — convenient for
+testing, but it also means a reboot does not wait out a full interval.
+
+**`launchctl kickstart` does NOT pick up a changed `StartInterval`** — launchd caches it from
+load time, so kickstart only re-runs the job on the old schedule. The unload/load above (or
+`launchctl bootout gui/$UID/com.claude.fleet-refresh` followed by
+`launchctl bootstrap gui/$UID <plist>`) is what actually applies it. Confirm with:
+
+```bash
+launchctl print "gui/$(id -u)/com.claude.fleet-refresh" | grep -i 'run interval'
+```
+
+Since the proactive refresh landed, **the interval is no longer the knob that governs safety** —
+`REFRESH_BELOW` in `fleet-refresh-credentials` is. Raising it refreshes earlier and keeps more
+headroom on the receivers; lowering it squeezes more life out of each token. If you raise it past
+`FORCE_BELOW_SECONDS` the script will say so and raise the force threshold to match, because a
+refresh with those two crossed can strand a spent token on a deferring receiver. The interval now
+just bounds how quickly a *failed* cycle is retried. Do not add a second rotator:
+cux is the rotation layer, and `cswap auto` must stay **off** (only its `--dry-run` probe is
+used here) — two controllers swapping the same accounts fight, and the result is
+indistinguishable from the race.
+
+## Reading a refresh cycle
+
+Each cycle logs one line per host plus a summary:
+
+```
+START exported 2 account(s)
+  mac-mini-2018: token good for 4h — deferring if cux is busy
+  mac-mini-2018: DEFERRED (cux session active)
+  archs-mac-mini: token expires in 126m — forcing through any live session
+  archs-mac-mini: OK
+DONE ok=2 deferred=2 failed=0
+```
+
+- **`REFRESH`** lines mean the authority minted a fresh token *before* pushing — the normal,
+  healthy path once any credential drops under 90 minutes:
+
+  ```
+  REFRESH lowest credential has 84m left (< 90m) — refreshing here first
+        REFRESHED work@example.com ...a1b2c3 -> ...d4e5f6, 479m left (probe 200)
+        cux resynced: work@example.com (cux slot 1)
+  REFRESH complete — lowest credential now 479m
+  ```
+
+  `REFRESHED-UNVERIFIED` means the new credential was minted and kept but its probe did not
+  return 200 — the credential is still the only live generation (the old one died on the POST),
+  so it is deliberately retained. Check the next cycle; if it recurs, the account needs
+  `refresh-claude-account`. A `FAILED … refresh error=invalid_grant` means that lineage is
+  permanently dead and something else refreshed it — the single-writer invariant is broken.
+- **DEFERRED** is normal, not a failure. Registering an account requires making it live, which
+  would swap the login out from under a supervised cux session, so a busy machine is skipped —
+  *unless* its access token has under 90 minutes left, at which point a momentary swap is
+  cheaper than letting it refresh and rotate the token out from under the fleet.
+- **A machine deferred every cycle for many hours** is the case to watch. It should get forced
+  once its token drops under the threshold; if it never does, the expiry probe is broken.
+- **`failed=` non-zero** → SSH or import trouble. Check `fleet-refresh.err.log` first: the agent
+  runs without your interactive shell's PATH or ssh-agent, so unattended auth problems show up
+  here and not in a manual run.
+- **`ABORT`** → the authority itself holds a dead account. It refuses to push rather than
+  overwrite healthy copies elsewhere. This is the one that needs you; see below.
+
+**A run of `ABORT`s is a countdown, not a safe hold.** The guard is correct — publishing a dead
+slot with `--force` would destroy working copies — but while it holds, *the top-ups stop*. The
+receivers keep spending the last credential they were given, and once one reaches its own refresh
+buffer it refreshes, rotates the single-use token, and the race the authority exists to prevent
+restarts on its own.
+
+That is not theoretical: on 2026-08-19 the authority ABORTed every cycle from Aug 18 15:26 to
+Aug 19 02:44 — 11+ hours, at times reporting *2* dead accounts — and by the end two receivers had
+each minted their own token for a shared account. The dead account and the drift were one
+incident, not two.
+
+So the deadline for repairing an ABORT is roughly the receivers' **remaining access-token life**
+(~8h from the last successful push), not "whenever convenient". Check how long you actually have:
+
+```bash
+grep -c ABORT ~/Library/Logs/fleet-refresh.log            # how long has it been holding?
+grep 'DONE' ~/Library/Logs/fleet-refresh.log | tail -1    # last cycle that actually pushed
+```
+
+After repairing, verify the receivers re-converged rather than assuming the next push fixed
+everything — a push reports success even where it did not overwrite the live login.
+
+## When an alert fires
+
+| Symptom | Meaning | Fix |
+|---|---|---|
+| `ABORT … dead on the authority` | The authority can no longer seed the fleet | Repair it with `refresh-claude-account` — Path A (re-seed from a machine that still works) before Path B |
+| Receiver has dead slots | The race fired on that machine | Usually self-heals on the next push (`cswap import --force` clears the dead-token strike). If it recurs, the single-writer invariant is broken |
+| Null headroom, no dead slot | Usage unreadable — often a stray setup-token (403), sometimes transient rate limiting (429) | Confirm with `cswap list --token-status`; `refreshToken: no` means a setup-token got in and cannot rotate |
+| Receiver's `refreshToken` prefix diverges | That machine refreshed on its own | **Logged as a note, never alerted — and unreliable as written** (see "the divergence signal is not yet trustworthy"). Since 2026-08-19 a forced push *does* re-converge it: the per-machine script imports twice around a switch and reports `MISMATCH` (exit 3) if a credential did not take. Re-check by fingerprint if it recurs |
+| Host unreachable | Cannot confirm credential health | Not benign — an unreachable machine still holds credentials and may refresh unobserved |
+
+**Never repair on a receiver.** The authority's next push overwrites it. Repair the authority and
+let the cycle distribute the fix.
+
+## Monitoring (not optional)
+
+`cswap auto --once --dry-run --json` is a safe read-only probe — it evaluates and reports but
+never switches or writes state. Schedule it per machine and alert on:
+
+- **`headroomPct` null for an account** → unreadable usage, caught *before* the account is
+  needed. Observed in practice: a probe returning `{"1": null, "2": 35.0}` correctly flagged
+  slot 1 while slot 2 was still healthy — days before anything tried to use it.
+- **A changed `refreshToken` prefix on a receiver** → that machine refreshed, meaning the race
+  is live and the design has sprung a leak. **Today this signal only reaches the log, never an
+  alert** — and it is the weakest of the four. See the gap below before relying on it.
+
+### The divergence signal is not yet trustworthy
+
+`fleet-health-check` compares each receiver's **live** login against the authority's **live**
+login. Those two machines are routinely active on *different accounts*, so a mismatch is
+usually benign — which is why the script only writes `note — live token differs from authority
+(expected when the two are active on different accounts)` and never raises an alert.
+
+The cost of that ambiguity is a confirmed miss. On 2026-08-19 mac-mini-m2 and archs-mac-mini
+were each holding a **self-minted token for the same account the authority held**, roughly
+1h20m from expiry, and the check logged nothing actionable. It was found by hand.
+
+The comparison that would be alertable is **per account, not per live login** — for a given
+email, every machine should hold the same access token. That is well-defined and has no benign
+case:
+
+```bash
+security find-generic-password -s "Claude Code-credentials" -w \
+  | /usr/bin/python3 -c 'import json,sys;o=json.load(sys.stdin)["claudeAiOauth"];print(o["accessToken"][-6:],o["expiresAt"])'
+```
+
+Run it on the authority and every receiver: identical output = converged. Until
+`fleet-health-check` keys on email rather than on whatever is live, **treat convergence as
+unmonitored and check it by hand after any push or repair.** `cux-backup` is useless for this —
+those keychain items are not JSON.
+
+**A single null is not proof of a fault.** The usage endpoint rate-limits (429) under exactly
+the load a busy fleet generates, and a rate-limited probe reports null for a perfectly healthy
+account. Alerting on the first null produces false alarms — seen 2026-08-17, two machines
+alerted while `cswap list --token-status` showed every account `fresh, refresh token yes`. A
+monitor that cries wolf gets ignored, and then the real event is missed. So separate the
+permanent conditions from the transient one:
+
+| Signal | Meaning | Treatment |
+|---|---|---|
+| `re-login needed` | Refresh token dead — the race fired | Alert immediately |
+| `http-403` | Credential lacks `user:profile` — a setup-token got in | Alert immediately |
+| `http-429` / a bare null | Usage endpoint throttled | Note it; alert only if it **persists** |
+| Host unreachable | Cannot confirm health at all | Alert — it still holds credentials |
+
+`fleet-health-check` implements this with a per-host streak counter in
+`~/.local/state/fleet-health-nulls`: a null increments, a clean run resets, and it alerts once
+the streak reaches 3 consecutive runs (~3h hourly, which is no longer plausibly rate limiting).
+Early detection survives; the noise does not.
+
+**Measure the account nearest death, not the live one.** The expiry probe driving the
+force-vs-defer decision must take the **minimum across all slots** (`cswap list --token-status`
+prints one `expires HH:MM in Xh Ym` per slot). Reading only the live login measures the wrong
+thing whenever a machine's two accounts have different expiries: seen 2026-08-17, mac-mini-m2
+reported "4h" from its live slot while its *other* slot's stored backup sat 60 minutes from
+expiry — so it deferred every cycle, and cux swapping onto that slot would have activated a
+dead token and rotated it out from under the fleet.
+
+A healthy probe looks like this — two events per tick, and no nulls:
+
+```json
+{"event":"poll","active":{"number":2,"email":"…"},"headroomPct":{"1":35.0,"2":41.0},
+ "threshold":90.0,"windowsPct":{"2":{"5h":27.0,"7d":65.0}}}
+{"event":"no-switch","reason":"below-threshold","detail":"65% < 90%"}
+```
+
+Why this is not optional: the failure it catches is **silent and permanent**. A machine that
+loses the rotation race looks fine until something actually calls the API — possibly days
+later — and the dead-token verdict strikes on the first failure with no retry
+(`AUTH_DEAD_STRIKES = 1`). Treat a gap in monitoring as an outage, not an inconvenience.
+
+Run it by hand any time:
+
+```bash
+NOTIFY=0 ~/.local/bin/fleet-health-check     # exit 0 = healthy, 1 = alerts raised
+```
+
+## The residual gap this monitoring exists for
+
+Receivers inherit the authority's *remaining* access-token life, which sawtooths from ~8h down to
+0 and back. No cadence closes that trough completely: a tick landing just before the authority
+refreshes leaves receivers briefly holding a near-expired token, and a receiver that runs Claude
+Code in that window **will** refresh and rotate the token out from under everyone.
+
+**As of 2026-08-19 that trough is closed at the source.** The authority no longer waits for its
+token to age out: `proactive_refresh()` mints a fresh ~8h token once anything drops under 90
+minutes and pushes it in the same cycle, so receivers are topped up long before they could reach
+a refresh buffer of their own. Cadence (now 15 min) is a safety margin, not the mechanism.
+
+Keep monitoring anyway. The guarantee holds only while its preconditions do: exactly one machine
+refreshing, `REFRESH_BELOW` ≤ `FORCE_BELOW_SECONDS` (or a refresh strands a spent token on any
+receiver that defers), and `cux` actually resolvable from the agent's PATH (it is *not* on the
+default PATH — it ships under mise-managed node — and without it cux keeps its own stale copy).
+A silent regression in any of those looks exactly like the old race, days later.
+
 ## Security
 
 The export holds **unencrypted OAuth credentials**. It is written mode 600 and deleted
 after import by default. Encrypted exports are rejected up front.
+
+## Related
+
+- `refresh-claude-account` — repair an account that is already dead (`re-login needed`, EXPRD,
+  null headroom) and emit the `claude-accounts.json` this skill distributes. That skill owns the
+  dead-account symptoms; this one owns distribution and the automation.
+- `ssh-claude-auth` — installs `~/.claude/unlock-keychain.sh` (its Approach B). The keychain
+  re-locks between SSH sessions, which is why every remote step here unlocks in the same
+  invocation. Its Approach **A** (a `setup-token`) must never be used on a fleet machine — cux
+  cannot register it and its usage reads 403, so that machine silently drops out of rotation.
+- [REFERENCE.md](REFERENCE.md) — the non-obvious constraints catalogue.
