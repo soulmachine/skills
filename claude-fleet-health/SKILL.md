@@ -30,8 +30,9 @@ Backing files:
 | `claude-fleet-health/scripts/claude-refresh-export` | Proactively refreshes near-expiry accounts inside an export, in place, using claude-swap's own OAuth code. Called by `proactive_refresh()`; must run on claude-swap's venv python, which the caller discovers |
 | `~/.local/bin/fleet-refresh-credentials`, `~/.local/bin/claude-refresh-export` | **Symlinks into the two paths above.** Deliberately not copies: a copy drifts silently, and on 2026-08-19 the deployed script and the repo had already diverged. A broken symlink fails loudly in `fleet-refresh.err.log` instead |
 | `~/.local/bin/fleet-health-check` | The monitor. `NOTIFY=0` suppresses the desktop notification |
-| `~/Library/LaunchAgents/com.claude.fleet-refresh.plist` | `StartInterval` 900 (15 min; was 1800 until 2026-08-19), `RunAtLoad` true |
-| `~/Library/LaunchAgents/com.claude.fleet-health.plist` | `StartInterval` 3600 |
+| `claude-fleet-health/launchd/*.plist` | The two agent definitions, version-controlled here with `__HOME__` in place of the home directory (launchd needs absolute paths and does not expand `$HOME`) |
+| `~/Library/LaunchAgents/com.claude.fleet-refresh.plist` | Installed copy. `StartInterval` 900 (15 min; was 1800 until 2026-08-19), `RunAtLoad` true |
+| `~/Library/LaunchAgents/com.claude.fleet-health.plist` | Installed copy. `StartInterval` 3600 |
 | `~/Library/Logs/fleet-refresh.log`, `fleet-health.log` | Per-cycle transcripts |
 | `…/fleet-refresh.err.log`, `fleet-health.err.log` | Should stay empty; content here means the agent itself is failing |
 
@@ -217,6 +218,31 @@ refreshing, `REFRESH_BELOW` ≤ `FORCE_BELOW_SECONDS` (or a refresh strands a sp
 receiver that defers), and `cux` actually resolvable from the agent's PATH (it is *not* on the
 default PATH — it ships under mise-managed node — and without it cux keeps its own stale copy).
 A silent regression in any of those looks exactly like the old race, days later.
+
+## Installing or re-installing the agents
+
+The plists are checked in as templates, so unlike the scripts they cannot be symlinked —
+launchd requires absolute paths. Render and load them:
+
+```bash
+REPO=~/github.com/soulmachine/skills/claude-fleet-health/launchd
+for f in com.claude.fleet-refresh com.claude.fleet-health; do
+    sed "s#__HOME__#$HOME#g" "$REPO/$f.plist" > ~/Library/LaunchAgents/$f.plist
+    plutil -lint ~/Library/LaunchAgents/$f.plist
+    launchctl bootout  "gui/$(id -u)/$f" 2>/dev/null
+    launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/$f.plist
+done
+```
+
+Because the installed copy is a copy, it **can drift** from the repo — the one thing the
+symlinked scripts are immune to. Check with the same render:
+
+```bash
+for f in com.claude.fleet-refresh com.claude.fleet-health; do
+    sed "s#__HOME__#$HOME#g" "$REPO/$f.plist" | diff -q - ~/Library/LaunchAgents/$f.plist \
+        && echo "$f: in sync" || echo "$f: DRIFTED"
+done
+```
 
 ## Changing the schedule
 

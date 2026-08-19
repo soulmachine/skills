@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.claude.fleet-refresh</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__HOME__/.local/bin/fleet-refresh-credentials</string>
+    </array>
+
+    <!-- 15 min (was 30). Receivers inherit the authority's remaining token life, which
+         sawtooths 8h -> 0, so the cadence bounds how long they can hold a stale token.
+         See the RESIDUAL RISK note in the script.
+
+         Tightened 2026-08-19 after a fleet-wide cascade: the 10:38 cycle correctly HELD
+         (authority had 6m of life left), the authority then refreshed at ~10:40 and
+         rotated the shared refresh token, receivers expired at ~10:45 and refreshed with
+         the now-spent token -> invalid_grant -> permanent strike on all four. The next
+         push was not until 11:08, ~23 min too late. Halving the interval halves that
+         recovery gap.
+
+         The interval alone does NOT close that gap — it only bounds it, because a receiver
+         dies the moment IT reaches its own refresh buffer, which can arrive before the
+         authority's token has even expired. The actual fix landed the same day: the script
+         now refreshes PROACTIVELY (see proactive_refresh() and REFRESH_BELOW), minting a
+         fresh ~8h token once anything drops under 90m and pushing it in the same cycle, so
+         no receiver ever has a reason to refresh. The 15-minute interval is now a safety
+         margin rather than the mechanism. -->
+    <key>StartInterval</key>
+    <integer>900</integer>
+
+    <!-- Push once at load so a reboot does not wait out a full interval. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/fleet-refresh.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/fleet-refresh.err.log</string>
+
+    <!-- Never let a stuck ssh pile up overlapping runs. -->
+    <key>AbandonProcessGroup</key>
+    <false/>
+</dict>
+</plist>

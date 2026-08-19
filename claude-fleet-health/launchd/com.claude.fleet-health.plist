@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.claude.fleet-health</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__HOME__/.local/bin/fleet-health-check</string>
+    </array>
+
+    <!-- Hourly. The failure this catches is silent and permanent once it fires, so the
+         check needs to run whether or not anyone is looking. -->
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/fleet-health.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/fleet-health.err.log</string>
+</dict>
+</plist>
