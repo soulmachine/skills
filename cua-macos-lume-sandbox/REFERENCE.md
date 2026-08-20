@@ -342,6 +342,34 @@ still exits 0, so the check that counts is reading the entry back:
 $ lume ssh "$VM" 'infocmp xterm-ghostty >/dev/null && echo OK'
 ```
 
+**A present entry is not a resolvable one.** The compiled file can sit on the guest, byte-identical
+to the host's, and SSH still breaks — presence and resolvability are separate conditions. ncurses
+searches only `~/.terminfo` and the compiled-in `/usr/share/terminfo`; an entry anywhere else needs
+`TERMINFO_DIRS`, which is exported per-shell and so disagrees with itself:
+
+```
+$ ssh guest 'zsh  -lc "echo [\$TERMINFO_DIRS]"'   # the guest's actual login shell
+[]
+$ ssh guest 'bash -lc "echo [\$TERMINFO_DIRS]"'   # only /etc/profile exports it
+[/usr/local/share/terminfo:]
+```
+
+A `/usr/local` + `/etc/profile` install therefore **works under bash and fails under zsh** — and zsh
+is the login shell, so the terminal stays broken while a spot check under `bash -l` passes. Diagnose
+with the search path, not with `ls` or a checksum:
+
+```
+$ ssh guest 'infocmp -D'
+/Users/lume/.terminfo
+/usr/share/terminfo
+```
+
+Anything outside those two directories does not exist as far as the terminal is concerned. The fix
+is an ordinary `~/.terminfo` install; the orphaned copy is then safe to remove, and an `/etc/profile`
+block guarded by `[ -d /usr/local/share/terminfo ]` stops firing by itself once it is gone.
+
+Guests provisioned before `9955768` (2026-08-18) predate step 4c and may carry that legacy layout.
+
 ---
 
 ## 6. Path B: the HTTP API (`cua-computer-server`)
