@@ -125,6 +125,23 @@ To run the per-machine step alone (already on the box):
 `uv tool install claude-swap` and `npm install -g @inulute/cux` (which needs Node ≥18 —
 `brew install node`). `jq` is used when present; otherwise `/usr/bin/python3` is the fallback.
 
+**`cux` must resolve on a non-interactive SSH PATH, not just in your shell.** The per-machine
+script sets `PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"` and then hard-fails
+with `cux not found`. A mise-managed node install satisfies an interactive login (mise activates
+from your rc file) and fails over `ssh host 'command'`, where nothing activates it — so the
+machine looks fine when you check by hand and dies on every push. Symlink it into `~/.local/bin`,
+which is first on that PATH:
+
+```bash
+ln -sfn ~/.local/share/mise/installs/node/latest/bin/cux ~/.local/bin/cux
+env -i HOME="$HOME" PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" \
+    sh -c 'command -v cux'      # must print a path
+```
+
+The `env -i` check is the one that matters: it proves resolution with no inherited environment,
+which is what the push actually gets. Point at mise's `latest` rather than a pinned version so a
+node upgrade does not silently break it.
+
 ## Options
 
 | Env | Effect |
@@ -291,6 +308,40 @@ for f in com.claude.fleet-refresh com.claude.fleet-health; do
         && echo "$f: in sync" || echo "$f: DRIFTED"
 done
 ```
+
+## Moving the authority to another machine
+
+Done on 2026-08-28 (MacBook Air → mac-mini-m2). The move itself is small — swap one name out of
+`FLEET_HOSTS` and the old authority in, stop two agents, start two agents. What costs time is
+that **the outgoing authority has never been a receiver**, so none of the receiver-side setup
+exists on it. All three of these were missing and each one fails differently:
+
+| Missing on the ex-authority | How it shows up |
+|---|---|
+| `~/.claude/unlock-keychain.sh` | Every SSH operation hits a locked keychain (`User interaction is not allowed`), `cswap` reports `keychain unavailable`, and writes degrade to file-only storage where cux cannot see them. It never needed one: as the authority it only touched its keychain from a local GUI session |
+| `cux` on a non-interactive PATH | `cux not found` on every push. See "Prerequisites per machine" |
+| A current `~/.local/bin/sync-claude-accounts` | Its copy is whatever was installed the last time it *was* a receiver, because `push-claude-accounts` only installs on push targets. Fix with `FORCE_INSTALL=1` |
+
+Order matters, and the one rule is **never two authorities at once** — two machines refreshing
+the same account is precisely the race this design exists to prevent:
+
+1. Prepare the incoming machine: `git pull` the repo, symlink the three scripts into
+   `~/.local/bin`, and confirm `FLEET_HOSTS` in *both* scripts lists the fleet minus itself and
+   plus the outgoing authority.
+2. Prove it works before committing to it: `fleet-refresh-credentials --dry-run` from the new
+   machine must read every host. A `WARN expiry unreadable` line is the ex-authority's locked
+   keychain — fix that before going further.
+3. Stop the old one **first**: `launchctl bootout gui/$(id -u)/<label>` for both agents, then
+   rename their plists aside so a reboot cannot resurrect a second authority.
+4. Start the new one: render the templates with `__HOME__` substituted, `plutil -lint`, then
+   `launchctl bootstrap`. `RunAtLoad` fires a cycle immediately.
+5. Verify a launchd-driven cycle reaches `DONE ok=N deferred=0 failed=0` and that `launchctl
+   list` shows last exit `0` for both. A manual run exiting 0 proves nothing about the agent.
+
+The brief gap in step 3→4 is safe: receivers simply are not topped up for a minute or two.
+Leaving the ex-authority *out* of the fleet is what is not safe — it still holds credentials, and
+the moment anything runs Claude Code on it, it refreshes and rotates the shared token out from
+under everyone.
 
 ## Changing the schedule
 
