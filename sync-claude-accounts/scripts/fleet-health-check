@@ -21,7 +21,7 @@ export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 # credentials but never probed is an unmonitored holder of live tokens, which is the
 # exact silent-failure shape this monitor exists to catch. Same FLEET_HOSTS override
 # and same default as the push script, so the two cannot drift apart.
-read -r -a HOSTS <<<"${FLEET_HOSTS:-mac-mini-2018 mac-mini-m2 archs-mac-mini mac-studio-m3 dev-server-frank-lume}"
+read -r -a HOSTS <<<"${FLEET_HOSTS:-mac-mini-2018 archs-mac-mini mac-studio-m3 dev-server-frank-lume macbook-air}"
 LOG="$HOME/Library/Logs/fleet-health.log"
 NOTIFY="${NOTIFY:-1}"
 mkdir -p "$(dirname "$LOG")"

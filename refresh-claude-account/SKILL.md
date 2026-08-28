@@ -46,7 +46,7 @@ is why this reads as accounts dying at random days later rather than at import t
 account, it will die again within days. The structural fix is a single-writer refresh authority —
 exactly one machine may refresh, and it pushes its credentials to the others, which only ever
 *consume* access tokens. On this fleet that is
-`~/.local/bin/fleet-refresh-credentials` on the MacBook Air.
+`~/.local/bin/fleet-refresh-credentials` on **mac-mini-m2**.
 
 ## 1 — Detect
 

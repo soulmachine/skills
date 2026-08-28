@@ -141,11 +141,19 @@ implements" above): receivers must be topped up often enough that none of them e
 its own refresh buffer, because the moment one does, it rotates the token and the fleet
 starts dying again.
 
-On this fleet that is `~/.local/bin/fleet-refresh-credentials` on the MacBook Air
+On this fleet that is `~/.local/bin/fleet-refresh-credentials` on **mac-mini-m2**
 (LaunchAgent `com.claude.fleet-refresh`, every 15 min), paired with
 `~/.local/bin/fleet-health-check` (`com.claude.fleet-health`, hourly). The push script wraps
 this skill: it exports, then calls `push-claude-accounts` with `IMPORT_FORCE=1` per host,
 deferring any machine with a live cux session unless its token is nearly expired.
+
+**Pick a machine with stable power and network.** The authority moved off the MacBook Air on
+2026-08-28: a laptop sleeps and roams, and the push log showed it dropping whole cycles in runs
+of 5, 22 and 43 — up to ~10.75h in which no receiver was topped up at all and, until the same
+day, nothing said so. That is how a receiver reaches its own refresh buffer and rotates the
+shared token. mac-mini-m2 runs `sleep 0` with `autorestart 1` and still has the GUI session an
+interactive re-login needs. The receiver list is simply the fleet minus whichever machine is the
+authority, so moving it means swapping one name out of `FLEET_HOSTS` and the old authority in.
 
 **Operating those agents — reading a cycle, what each alert means, changing the cadence — is
 covered below**, from "What is running" onward. The push mechanism and the automation that
