@@ -244,8 +244,8 @@ Backing files:
 |---|---|
 | `sync-claude-accounts/scripts/fleet-refresh-credentials` | The push cycle, version-controlled here. `--dry-run` reports what it would do without touching anything. `FLEET_HOSTS="a b c"` targets a different fleet |
 | `sync-claude-accounts/scripts/claude-refresh-export` | Proactively refreshes near-expiry accounts inside an export, in place, using claude-swap's own OAuth code. Called by `proactive_refresh()`; must run on claude-swap's venv python, which the caller discovers |
-| `~/.local/bin/fleet-refresh-credentials`, `~/.local/bin/claude-refresh-export` | **Symlinks into the two paths above.** Deliberately not copies: a copy drifts silently, and on 2026-08-19 the deployed script and the repo had already diverged. A broken symlink fails loudly in `fleet-refresh.err.log` instead |
-| `~/.local/bin/fleet-health-check` | The monitor. `NOTIFY=0` suppresses the desktop notification |
+| `sync-claude-accounts/scripts/fleet-health-check` | The monitor, version-controlled here since 2026-08-26. `NOTIFY=0` suppresses the desktop notification. Its `FLEET_HOSTS` default **must stay identical to the push script's** — a machine that is pushed credentials but never probed holds live tokens unobserved |
+| `~/.local/bin/fleet-refresh-credentials`, `~/.local/bin/claude-refresh-export`, `~/.local/bin/fleet-health-check` | **Symlinks into the three paths above.** Deliberately not copies: a copy drifts silently, and on 2026-08-19 the deployed script and the repo had already diverged. A broken symlink fails loudly in the matching `.err.log` instead. `fleet-health-check` was the last copy still unmanaged — it was never tracked at all until 2026-08-26, having been missed by the `claude-fleet-health` merge |
 | `sync-claude-accounts/launchd/*.plist` | The two agent definitions, version-controlled here with `__HOME__` in place of the home directory (launchd needs absolute paths and does not expand `$HOME`) |
 | `~/Library/LaunchAgents/com.claude.fleet-refresh.plist` | Installed copy. `StartInterval` 900 (15 min; was 1800 until 2026-08-19), `RunAtLoad` true |
 | `~/Library/LaunchAgents/com.claude.fleet-health.plist` | Installed copy. `StartInterval` 3600 |
@@ -438,13 +438,23 @@ permanent conditions from the transient one:
 |---|---|---|
 | `re-login needed` | Refresh token dead — the race fired | Alert immediately |
 | `http-403` | Credential lacks `user:profile` — a setup-token got in | Alert immediately |
-| `http-429` / a bare null | Usage endpoint throttled | Note it; alert only if it **persists** |
+| `http-429` (named in `fetchErrors`) | Usage endpoint throttled | Note it; **never** counted toward the streak |
+| A bare null with no attribution | Cause unknown — could be either | Note it; alert only if it **persists** |
 | Host unreachable | Cannot confirm health at all | Alert — it still holds credentials |
 
-`fleet-health-check` implements this with a per-host streak counter in
-`~/.local/state/fleet-health-nulls`: a null increments, a clean run resets, and it alerts once
-the streak reaches 3 consecutive runs (~3h hourly, which is no longer plausibly rate limiting).
+`fleet-health-check` implements this in two stages. First it **attributes**: `cswap auto
+--once --dry-run --json` names the cause of each null in the poll event's `fetchErrors` map
+(`{"headroomPct": {"1": null}, "fetchErrors": {"1": "http-429"}}`), and a null blamed on
+http-429 is discarded outright rather than counted — it is a throttled probe, not a sick
+account. Nulls with no attribution, or with any other cause, still count: absence of an
+explanation is treated as suspicious. Then it **persists**: the surviving *unexplained* count
+drives a per-host streak counter in `~/.local/state/fleet-health-nulls` — it increments, a
+clean run resets, and it alerts once the streak reaches 3 consecutive runs (~3h hourly).
 Early detection survives; the noise does not.
+
+Attribution was added 2026-08-26 after mac-studio-m3 alerted for 4 straight hours on a
+429-throttled probe while that very account answered a live `claude -p` call. Counting bare
+nulls alone could not tell the two apart, even though cswap had already said which it was.
 
 **Measure the account nearest death, not the live one.** The expiry probe driving the
 force-vs-defer decision must take the **minimum across all slots** (`cswap list --token-status`

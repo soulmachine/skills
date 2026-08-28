@@ -1,0 +1,145 @@
+#!/bin/bash
+# fleet-health-check — detect the refresh-token race firing, before an account is needed.
+#
+# The race is silent: a rotated-out machine looks fine until something actually calls the
+# API, which may be days later. These are the signals that expose it early:
+#
+#   * a cswap slot reporting "re-login needed — refresh token dead" — the race already fired
+#   * UNEXPLAINED null headroom in `cswap auto --once --dry-run --json` — that account's usage
+#     is unreadable for a reason the probe cannot attribute to rate-limiting, which is the
+#     same condition one step earlier. Nulls that cswap itself blames on http-429 are excluded;
+#     see the streak comment below.
+#   * a receiver whose live refreshToken differs from the authority's — that machine
+#     refreshed on its own, so the single-writer invariant is broken and deaths will follow
+#
+# --dry-run on the cswap probe matters: it evaluates and reports but never switches or
+# writes state, so this is safe to run against machines doing real work.
+set -uo pipefail
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+
+# Receivers. MUST match fleet-refresh-credentials' list: a machine that is pushed
+# credentials but never probed is an unmonitored holder of live tokens, which is the
+# exact silent-failure shape this monitor exists to catch. Same FLEET_HOSTS override
+# and same default as the push script, so the two cannot drift apart.
+read -r -a HOSTS <<<"${FLEET_HOSTS:-mac-mini-2018 mac-mini-m2 archs-mac-mini mac-studio-m3 dev-server-frank-lume}"
+LOG="$HOME/Library/Logs/fleet-health.log"
+NOTIFY="${NOTIFY:-1}"
+mkdir -p "$(dirname "$LOG")"
+
+log()   { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" | tee -a "$LOG"; }
+alerts=0
+alert() { log "ALERT $*"; alerts=$((alerts+1)); }
+
+# Health of one machine as "<dead> <nulls> <throttled> <403> <tokenprefix>"; runs locally
+# when host is empty. <throttled> is the subset of <nulls> that cswap attributed to
+# http-429 via the poll event's fetchErrors map.
+probe() {
+    local remote="$1"
+    local script='
+        export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+        [ -f "$HOME/.claude/unlock-keychain.sh" ] && bash "$HOME/.claude/unlock-keychain.sh" >/dev/null 2>&1
+        listing=$(cswap list 2>/dev/null | sed -e "s/\x1b\[[0-9;:]*m//g")
+        dead=$(printf "%s" "$listing" | grep -c "re-login needed")
+        # 403 = the credential lacks user:profile (a setup-token got in) — permanent.
+        # 429 = the usage endpoint is merely rate-limited — transient, and NOT a fault.
+        forbidden=$(printf "%s" "$listing" | grep -c "http-403")
+        # cswap reports WHY a slot came back null in the poll event fetchErrors map, e.g.
+        # {"headroomPct": {"1": null}, "fetchErrors": {"1": "http-429"}}. Counting both the
+        # total and the 429-attributable subset lets the caller ignore throttling without
+        # losing sight of nulls it cannot explain.
+        nt=$(cswap auto --once --dry-run --json 2>/dev/null \
+                | /usr/bin/python3 -c "
+import json,sys
+n=t=0
+for line in sys.stdin:
+    line=line.strip()
+    if not line.startswith(\"{\"): continue
+    try: e=json.loads(line)
+    except Exception: continue
+    if e.get(\"event\")==\"poll\":
+        hp=e.get(\"headroomPct\") or {}
+        fe=e.get(\"fetchErrors\") or {}
+        n=sum(1 for v in hp.values() if v is None)
+        t=sum(1 for k,v in hp.items()
+              if v is None and str(fe.get(k) or \"\").endswith(\"429\"))
+print(n,t)" 2>/dev/null)
+        nulls=${nt%% *}; throttled=${nt##* }
+        tok=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null \
+              | /usr/bin/python3 -c "
+import json,sys
+try: print((json.load(sys.stdin)[\"claudeAiOauth\"].get(\"refreshToken\") or \"none\")[:20])
+except Exception: print(\"unreadable\")" 2>/dev/null)
+        printf "%s %s %s %s %s\n" "${dead:-?}" "${nulls:-?}" "${throttled:-?}" "${forbidden:-?}" "${tok:-?}"
+    '
+    if [ -z "$remote" ]; then bash -c "$script" 2>/dev/null
+    else ssh -o BatchMode=yes -o ConnectTimeout=15 "$remote" "$script" 2>/dev/null; fi
+}
+
+# Null headroom alone is NOT proof of a fault: the usage endpoint rate-limits (429) under
+# exactly the load a busy fleet generates, and a rate-limited probe reports null for a
+# perfectly healthy account. Alerting on the first null produces false alarms — observed
+# 2026-08-17, two machines alerted while `cswap list --token-status` showed both their
+# accounts fresh with valid refresh tokens. A monitor that cries wolf gets ignored, and then
+# the real event is missed.
+#
+# Two defences, in order:
+#   1. ATTRIBUTE. cswap names the cause in the poll event's fetchErrors map, so a null it
+#      blames on http-429 is discarded outright rather than counted — it is a throttled
+#      probe, not a sick account. Observed 2026-08-26: mac-studio-m3 alerted for 4 straight
+#      runs on `{"headroomPct": {"1": null}, "fetchErrors": {"1": "http-429"}}` while that
+#      very account answered a live `claude -p` call. Nulls with no attribution, or with any
+#      other cause, still count — absence of an explanation is treated as suspicious.
+#   2. PERSIST. Dead slots and 403s alert immediately (both are permanent conditions), while
+#      an unexplained null must survive several consecutive runs before it counts.
+STATE="$HOME/.local/state/fleet-health-nulls"
+mkdir -p "$(dirname "$STATE")"; [ -f "$STATE" ] || : >"$STATE"
+NULL_STREAK_ALERT=3        # consecutive hourly runs; ~3h of unreadable usage is not transient
+
+streak() { # $1 host, $2 unexplained-nulls -> current streak, persisted
+    local h="$1" n="$2" prev cur
+    prev=$(grep -E "^$h " "$STATE" 2>/dev/null | awk '{print $2}')
+    prev=${prev:-0}
+    if [ "$n" != "0" ] && [ "$n" != "?" ]; then cur=$((prev+1)); else cur=0; fi
+    grep -vE "^$h " "$STATE" >"$STATE.tmp" 2>/dev/null || : >"$STATE.tmp"
+    printf '%s %s\n' "$h" "$cur" >>"$STATE.tmp"; mv "$STATE.tmp" "$STATE"
+    printf '%s' "$cur"
+}
+
+# Nulls minus the 429-attributable subset; "?" if either count was unreadable.
+unexplained_nulls() { # $1 nulls, $2 throttled
+    if [ "$1" = "?" ] || [ "$2" = "?" ]; then printf '?'; else printf '%s' "$(( $1 - $2 ))"; fi
+}
+
+read -r a_dead a_nulls a_throttled a_forbidden a_tok <<<"$(probe "")"
+a_unexp=$(unexplained_nulls "${a_nulls:-?}" "${a_throttled:-?}")
+log "authority(localhost): dead=$a_dead nullHeadroom=$a_nulls (throttled=$a_throttled unexplained=$a_unexp) http403=$a_forbidden token=${a_tok:0:14}…"
+[ "${a_dead:-0}" != "0" ] && alert "authority has $a_dead dead slot(s) — it can no longer seed the fleet; repair BEFORE the next push overwrites healthy copies elsewhere"
+
+for h in "${HOSTS[@]}"; do
+    read -r dead nulls throttled forbidden tok <<<"$(probe "$h")"
+    if [ -z "${dead:-}" ]; then log "  $h: UNREACHABLE"; alert "$h unreachable — cannot confirm credential health"; continue; fi
+    unexp=$(unexplained_nulls "$nulls" "$throttled")
+    s=$(streak "$h" "$unexp")
+    log "  $h: dead=$dead nullHeadroom=$nulls (throttled=$throttled unexplained=$unexp) http403=$forbidden nullStreak=$s token=${tok:0:14}…"
+    [ "$dead" != "0" ] && [ "$dead" != "?" ] && alert "$h has $dead dead slot(s) — the race fired here"
+    [ "$forbidden" != "0" ] && [ "$forbidden" != "?" ] && alert "$h has $forbidden account(s) returning http-403 — a setup-token got in; it can never rotate"
+    if [ "$s" -ge "$NULL_STREAK_ALERT" ]; then
+        alert "$h has had $unexp account(s) with unexplained unreadable usage for $s consecutive runs — not rate-limiting; check for a dead or scope-limited credential"
+    elif [ "$unexp" != "0" ] && [ "$unexp" != "?" ]; then
+        log "  $h: note — $unexp unexplained null headroom, streak $s/$NULL_STREAK_ALERT (no fetchErrors attribution; not alerting yet)"
+    elif [ "$throttled" != "0" ] && [ "$throttled" != "?" ]; then
+        log "  $h: note — $throttled null headroom, all attributed to http-429 (usage endpoint rate-limiting) — not a fault, streak not advanced"
+    fi
+    # Divergence means this receiver minted its own token instead of consuming the
+    # authority's, which is the single-writer invariant breaking.
+    if [ "$tok" != "$a_tok" ] && [ "$tok" != "unreadable" ] && [ "$a_tok" != "unreadable" ]; then
+        log "  $h: note — live token differs from authority (expected when the two are active on different accounts)"
+    fi
+done
+
+if [ "$alerts" -gt 0 ]; then
+    log "RESULT $alerts alert(s)"
+    [ "$NOTIFY" = "1" ] && osascript -e "display notification \"$alerts alert(s) — see fleet-health.log\" with title \"Claude fleet health\"" >/dev/null 2>&1
+    exit 1
+fi
+log "RESULT healthy"
