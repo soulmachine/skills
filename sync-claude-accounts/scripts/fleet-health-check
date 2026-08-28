@@ -69,7 +69,35 @@ print(n,t)" 2>/dev/null)
 import json,sys
 try: print((json.load(sys.stdin)[\"claudeAiOauth\"].get(\"refreshToken\") or \"none\")[:20])
 except Exception: print(\"unreadable\")" 2>/dev/null)
-        printf "%s %s %s %s %s\n" "${dead:-?}" "${nulls:-?}" "${throttled:-?}" "${forbidden:-?}" "${tok:-?}"
+        printf "STAT %s %s %s %s %s\n" "${dead:-?}" "${nulls:-?}" "${throttled:-?}" "${forbidden:-?}" "${tok:-?}"
+        # Per-ACCOUNT fingerprint. This is the comparison with no benign case: for one email,
+        # every machine must hold the same credential generation. The live-login comparison it
+        # replaces could not tell "this machine refreshed on its own" from "these two are simply
+        # active on different accounts", so it could only ever be a note, never an alert -- and
+        # on 2026-08-19 it duly logged nothing while two receivers each held a self-minted token
+        # for the account the authority also held.
+        #
+        # The fingerprint is remaining lifetime in minutes, read from the relative countdown and
+        # not the clock, because the clock is rendered in the local timezone of each machine and
+        # archs-mac-mini prints a different wall time for a byte-identical token. Anchoring on
+        # the literal " in " also sidesteps the date prefix that appears once an expiry crosses
+        # midnight. A self-minted token was minted at a different moment, so it differs by hours,
+        # far outside the minute of truncation noise between probes.
+        cswap list --token-status 2>/dev/null | sed -e "s/\x1b\[[0-9;:]*m//g" | /usr/bin/python3 -c "
+import sys
+email=None
+for line in sys.stdin:
+    t=line.strip()
+    if \"@\" in t and \":\" in t and t.split(\":\",1)[0].strip().isdigit():
+        email=t.split()[1]; continue
+    if email and \"expires\" in t and \" in \" in t:
+        secs=0
+        for tok in t.split(\" in \",1)[1].split():
+            if tok[-1] in \"dhm\" and tok[:-1].isdigit():
+                secs += int(tok[:-1])*{\"d\":86400,\"h\":3600,\"m\":60}[tok[-1]]
+            else: break
+        print(\"ACCT\", email, secs//60)
+        email=None" 2>/dev/null
     '
     if [ -z "$remote" ]; then bash -c "$script" 2>/dev/null
     else ssh -o BatchMode=yes -o ConnectTimeout=15 "$remote" "$script" 2>/dev/null; fi
@@ -110,13 +138,22 @@ unexplained_nulls() { # $1 nulls, $2 throttled
     if [ "$1" = "?" ] || [ "$2" = "?" ]; then printf '?'; else printf '%s' "$(( $1 - $2 ))"; fi
 }
 
-read -r a_dead a_nulls a_throttled a_forbidden a_tok <<<"$(probe "")"
+# Collected across every machine, then compared per account after the sweep.
+ACCTS="$(mktemp -t fleet-health-accts)"
+trap 'rm -f "$ACCTS"' EXIT INT TERM
+CONVERGE_TOLERANCE_MIN="${CONVERGE_TOLERANCE_MIN:-2}"
+
+a_out="$(probe "")"
+read -r a_dead a_nulls a_throttled a_forbidden a_tok <<<"$(printf '%s\n' "$a_out" | sed -n 's/^STAT //p' | head -1)"
+printf '%s\n' "$a_out" | sed -n 's/^ACCT /authority /p' >>"$ACCTS"
 a_unexp=$(unexplained_nulls "${a_nulls:-?}" "${a_throttled:-?}")
 log "authority(localhost): dead=$a_dead nullHeadroom=$a_nulls (throttled=$a_throttled unexplained=$a_unexp) http403=$a_forbidden token=${a_tok:0:14}…"
 [ "${a_dead:-0}" != "0" ] && alert "authority has $a_dead dead slot(s) — it can no longer seed the fleet; repair BEFORE the next push overwrites healthy copies elsewhere"
 
 for h in "${HOSTS[@]}"; do
-    read -r dead nulls throttled forbidden tok <<<"$(probe "$h")"
+    out="$(probe "$h")"
+    read -r dead nulls throttled forbidden tok <<<"$(printf '%s\n' "$out" | sed -n 's/^STAT //p' | head -1)"
+    printf '%s\n' "$out" | sed -n "s/^ACCT /$h /p" >>"$ACCTS"
     if [ -z "${dead:-}" ]; then log "  $h: UNREACHABLE"; alert "$h unreachable — cannot confirm credential health"; continue; fi
     unexp=$(unexplained_nulls "$nulls" "$throttled")
     s=$(streak "$h" "$unexp")
@@ -130,12 +167,39 @@ for h in "${HOSTS[@]}"; do
     elif [ "$throttled" != "0" ] && [ "$throttled" != "?" ]; then
         log "  $h: note — $throttled null headroom, all attributed to http-429 (usage endpoint rate-limiting) — not a fault, streak not advanced"
     fi
-    # Divergence means this receiver minted its own token instead of consuming the
-    # authority's, which is the single-writer invariant breaking.
-    if [ "$tok" != "$a_tok" ] && [ "$tok" != "unreadable" ] && [ "$a_tok" != "unreadable" ]; then
-        log "  $h: note — live token differs from authority (expected when the two are active on different accounts)"
-    fi
 done
+
+# Per-account convergence. Divergence here means a machine minted its own token instead of
+# consuming the authority-issued one, which IS the single-writer invariant breaking -- and
+# unlike the live-login comparison this replaces, it has no benign case to hide behind, so it
+# alerts. Two machines holding one account must hold one generation; a self-minted token was
+# minted at a different moment and so carries a different remaining lifetime.
+while read -r verdict email detail; do
+    case "$verdict" in
+      DIVERGED) alert "$email has diverged across the fleet — $detail; a machine refreshed on its own, so the single-writer invariant is broken and deaths follow. Re-converge with a forced push, then re-check" ;;
+      OK)       log "  converged: $email — $detail" ;;
+      SKIP)     log "  note — $email $detail" ;;
+    esac
+done < <(/usr/bin/python3 -c '
+import sys, collections
+tol=int(sys.argv[1])
+by=collections.defaultdict(dict)
+for line in sys.stdin:
+    f=line.split()
+    if len(f)!=3: continue
+    try: by[f[1]][f[0]]=int(f[2])
+    except ValueError: pass
+for email in sorted(by):
+    holders=by[email]
+    if len(holders)<2:
+        print("SKIP", email, "held by only %d machine(s) - nothing to compare" % len(holders)); continue
+    lo, hi = min(holders.values()), max(holders.values())
+    if hi-lo <= tol:
+        print("OK", email, "all %d machines within %dm" % (len(holders), hi-lo)); continue
+    majority = collections.Counter(holders.values()).most_common(1)[0][0]
+    odd = ", ".join("%s=%dm" % (h,m) for h,m in sorted(holders.items()) if abs(m-majority) > tol)
+    print("DIVERGED", email, "spread %dm across %d machines, majority %dm, outliers: %s" % (hi-lo, len(holders), majority, odd))
+' "$CONVERGE_TOLERANCE_MIN" <"$ACCTS")
 
 if [ "$alerts" -gt 0 ]; then
     log "RESULT $alerts alert(s)"

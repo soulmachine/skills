@@ -443,7 +443,7 @@ everything — a push reports success even where it did not overwrite the live l
 | `ABORT … dead on the authority` | The authority can no longer seed the fleet | Repair it with `refresh-claude-account` — Path A (re-seed from a machine that still works) before Path B |
 | Receiver has dead slots | The race fired on that machine | Usually self-heals on the next push (`cswap import --force` clears the dead-token strike). If it recurs, the single-writer invariant is broken |
 | Null headroom, no dead slot | Usage unreadable — often a stray setup-token (403), sometimes transient rate limiting (429) | Confirm with `cswap list --token-status`; `refreshToken: no` means a setup-token got in and cannot rotate |
-| Receiver's `refreshToken` prefix diverges | That machine refreshed on its own | **Logged as a note, never alerted — and unreliable as written** (see "the divergence signal is not yet trustworthy"). Since 2026-08-19 a forced push *does* re-converge it: the per-machine script imports twice around a switch and reports `MISMATCH` (exit 3) if a credential did not take. Re-check by fingerprint if it recurs |
+| `ALERT <email> has diverged across the fleet` | A machine holds a different generation of that account than the rest — it refreshed on its own, so the single-writer invariant is broken | Re-converge with a forced push (`IMPORT_FORCE=1`), then re-run the check. The per-machine script imports twice around a switch and reports `MISMATCH` (exit 3) if a credential did not take. If it recurs, something on that machine is refreshing outside the authority |
 | Host unreachable | Cannot confirm credential health | Not benign — an unreachable machine still holds credentials and may refresh unobserved |
 | `ALERT … missed N consecutive pushes` | Delivery to that host has been failing, so it is spending a credential nobody is refreshing | Fix the transport (SSH/scp/network) before it reaches its own refresh buffer. Fires at 4 consecutive misses (~1h), re-alerts every 4; tune with `PUSH_FAIL_ALERT` |
 
@@ -458,34 +458,50 @@ never switches or writes state. Schedule it per machine and alert on:
 - **`headroomPct` null for an account** → unreadable usage, caught *before* the account is
   needed. Observed in practice: a probe returning `{"1": null, "2": 35.0}` correctly flagged
   slot 1 while slot 2 was still healthy — days before anything tried to use it.
-- **A changed `refreshToken` prefix on a receiver** → that machine refreshed, meaning the race
-  is live and the design has sprung a leak. **Today this signal only reaches the log, never an
-  alert** — and it is the weakest of the four. See the gap below before relying on it.
+- **Two machines holding different generations of one account** → whichever is the odd one out
+  refreshed on its own, meaning the race is live and the design has sprung a leak. This alerts
+  as of 2026-08-28; see below for why the comparison has to be per account.
 
-### The divergence signal is not yet trustworthy
+### Convergence is compared per account, not per live login
 
-`fleet-health-check` compares each receiver's **live** login against the authority's **live**
-login. Those two machines are routinely active on *different accounts*, so a mismatch is
-usually benign — which is why the script only writes `note — live token differs from authority
-(expected when the two are active on different accounts)` and never raises an alert.
+Until 2026-08-28 the check compared each receiver's **live** login against the authority's
+**live** login. Two machines are routinely active on *different accounts*, so a mismatch there is
+usually benign, and a signal that is usually benign can only ever be a note. It duly cost a
+confirmed miss: on 2026-08-19 mac-mini-m2 and archs-mac-mini were each holding a **self-minted
+token for the same account the authority held**, roughly 1h20m from expiry, and the check logged
+nothing actionable. It was found by hand.
 
-The cost of that ambiguity is a confirmed miss. On 2026-08-19 mac-mini-m2 and archs-mac-mini
-were each holding a **self-minted token for the same account the authority held**, roughly
-1h20m from expiry, and the check logged nothing actionable. It was found by hand.
+Keying on the account removes the ambiguity, because for one email there is no benign reason for
+two machines to hold different generations. `fleet-health-check` now reports, per machine and per
+slot, the remaining lifetime of every account it holds, groups those by email across the fleet,
+and alerts when the spread exceeds `CONVERGE_TOLERANCE_MIN` (default 2 minutes), naming the
+outliers:
 
-The comparison that would be alertable is **per account, not per live login** — for a given
-email, every machine should hold the same access token. That is well-defined and has no benign
-case:
+```
+converged: tech@archauto.com — all 6 machines within 1m
+ALERT tech@archauto.com has diverged across the fleet — spread 400m across 5 machines,
+      majority 480m, outliers: archs-mac-mini=80m, mac-mini-m2=80m
+```
+
+Three things about that fingerprint are deliberate:
+
+- **Remaining minutes, not the clock.** `expires 08:34` is rendered in the local timezone of each
+  machine — archs-mac-mini prints a different wall time for a byte-identical token — so clock
+  times are not comparable across the fleet. The countdown is.
+- **Every slot, not just the live one.** The keychain holds only the live login; the other
+  account sits in a cswap store. Reading `cswap list --token-status` covers both, which is the
+  entire point — the 2026-08-19 miss was on a *non-live* slot.
+- **A tolerance, because the countdown is minute-truncated.** Machines probed seconds apart can
+  legitimately differ by a minute. A self-minted token was minted at a different moment and
+  differs by hours, so 2 minutes separates them cleanly with room to spare.
+
+`cux-backup` is useless for this — those keychain items are not JSON. To spot-check one machine
+by hand, the live login can still be fingerprinted directly:
 
 ```bash
 security find-generic-password -s "Claude Code-credentials" -w \
   | /usr/bin/python3 -c 'import json,sys;o=json.load(sys.stdin)["claudeAiOauth"];print(o["accessToken"][-6:],o["expiresAt"])'
 ```
-
-Run it on the authority and every receiver: identical output = converged. Until
-`fleet-health-check` keys on email rather than on whatever is live, **treat convergence as
-unmonitored and check it by hand after any push or repair.** `cux-backup` is useless for this —
-those keychain items are not JSON.
 
 **A single null is not proof of a fault.** The usage endpoint rate-limits (429) under exactly
 the load a busy fleet generates, and a rate-limited probe reports null for a perfectly healthy
