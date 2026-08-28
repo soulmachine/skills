@@ -386,6 +386,7 @@ everything — a push reports success even where it did not overwrite the live l
 | Null headroom, no dead slot | Usage unreadable — often a stray setup-token (403), sometimes transient rate limiting (429) | Confirm with `cswap list --token-status`; `refreshToken: no` means a setup-token got in and cannot rotate |
 | Receiver's `refreshToken` prefix diverges | That machine refreshed on its own | **Logged as a note, never alerted — and unreliable as written** (see "the divergence signal is not yet trustworthy"). Since 2026-08-19 a forced push *does* re-converge it: the per-machine script imports twice around a switch and reports `MISMATCH` (exit 3) if a credential did not take. Re-check by fingerprint if it recurs |
 | Host unreachable | Cannot confirm credential health | Not benign — an unreachable machine still holds credentials and may refresh unobserved |
+| `ALERT … missed N consecutive pushes` | Delivery to that host has been failing, so it is spending a credential nobody is refreshing | Fix the transport (SSH/scp/network) before it reaches its own refresh buffer. Fires at 4 consecutive misses (~1h), re-alerts every 4; tune with `PUSH_FAIL_ALERT` |
 
 **Never repair on a receiver.** The authority's next push overwrites it. Repair the authority and
 let the cycle distribute the fix.
