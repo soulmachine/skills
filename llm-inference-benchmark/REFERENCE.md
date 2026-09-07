@@ -200,6 +200,261 @@ proxied 63.8/342.7 @ c1/c64.
   `bench.log.vllm-nvfp4-b12x-090-maxseqs64-c128-0613` (b12x cap-64 c128 ≡ c64) and
   `bench.log.vllm-nvfp4-b12x-090-maxseqs128-c64c128-0613` (b12x cap-128, true 128-wide).
 
+## Kimi-K3 baselines (llama.cpp, CPU+GPU hybrid, single 8x RTX PRO 6000 Blackwell SE host)
+
+> Read "The SSE keep-alive trap" below before benchmarking any **slow** server, with any engine —
+> unpatched, the client silently reports a saturation curve that is really its own parse failures.
+
+### The SSE keep-alive trap (client bug — affects ANY slow server, not just Kimi-K3)
+
+`sglang.bench_serving`'s streaming parsers do this per line: skip blanks, strip a `data: ` prefix,
+special-case `[DONE]`, then `json.loads()` whatever is left. An **SSE comment line — a bare `:` —
+passes every one of those guards** and reaches `json.loads`, raising
+
+```
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+```
+
+which the client records as a **failed request** and which drops the connection (the server then
+logs `W srv stop: cancel task`, its client-disconnect path — which is why this looked like a server
+problem). SSE comments are spec-legal keep-alives (W3C SSE: a line starting with `:` is ignored),
+and **llama.cpp emits them while a request waits during slow prefill**. Confirmed by capturing the
+raw stream under load: `cat -A` shows `:$` lines interleaved with the `data: {...}` lines.
+
+Why it hid for so long: keep-alives are only emitted when there is a *gap* between tokens. A fast,
+GPU-resident server never sends one, so the bug is invisible against Kimi-K2.6 and against a small
+model (verified: Qwen2.5-0.5B on the same image, same `--parallel 32 --ctx-size 65536` shape, same
+bridged client — 32/32, zero drops; and still 16/16 when deliberately slowed with `-ngl 0
+--threads 1`). It appears only on slow/contended servers, and **scales with concurrency**, because
+longer waits mean more keep-alives — which is exactly what makes it masquerade as a saturation limit.
+
+Isolate it the same way if you ever suspect it: hold the server and the sweep point fixed and change
+only the client (stock vs patched). Unpatched, most requests are recorded as failures and throughput
+collapses; patched, the same point returns N/N.
+
+**The fix is now automatic**: `scripts/sse_keepalive_patch.py` (idempotent) is mounted and applied
+inside the client container by `bench_sweep.sh` before every run. If it ever prints
+`WARNING: no stream loop matched`, the client version changed — **stop and re-anchor the patch**,
+because unpatched results against a slow server are silently wrong rather than obviously broken.
+
+Two explanations that look strong when you hit this, and are **wrong** — don't spend time on them:
+- *Prompt-cache thrashing.* The server does log `making room for prompt cache entry, removing oldest
+  entry (size = 1364 MiB)` continuously (478 evictions in one c8 run — entries are ~1.36 GB against
+  llama.cpp's `--cache-ram` default of 8192 MiB, so only ~6 fit). Real, but unrelated: with the
+  client fixed, **both `--cache-ram 0` and the default give 32/32**.
+- *Client timeout / request cancellation cascade.* `BENCH_AIOHTTP_TIMEOUT_SECONDS` is 6 h with no
+  sub-timeouts, and with `return_exceptions=True` instrumentation no `CancelledError` ever appeared —
+  each request fails independently on its own parse error.
+
+### Valid measurements (fixed client)
+
+Server: `unsloth/Kimi-K3-GGUF` UD-Q2_K_XL (802 GB, 19 shards) + `mmproj-BF16.gguf`,
+`BUILD_SOURCE=fork` (`unslothai/llama.cpp` PR #70 @ `883f2c9b`), `--load-mode none`,
+`--cache-type-k/v f16`, `--numa distribute` (host `numa_balancing=0`), `--ctx-size 65536
+--parallel 32`, `--threads 64`. `--fit` places ~92-94 GB on each of the 8 GPUs. Cold load ~18.7 min.
+Grid `IN=1024 OUT=256`, `PROMPTS_PER=4`, `sglang-oai`, `MODEL_REPO=moonshotai/Kimi-K3`.
+
+**The saturation curve** (`--cache-ram 0`, log `bench.log.q2kxl-fit-p32-cacheram0-0904`, 2026-09-04).
+Every point is **N/N successful** — that is the gate for trusting any row here, and the reason the
+`out tok/s` column is meaningful again (abandoned requests still count their wall time into
+`Benchmark duration`, so partial-success points silently deflate throughput):
+
+| Conc | Successful | Duration (s) | out tok/s | Mean TTFT (ms) | Mean TPOT (ms) | Median ITL (ms) |
+|---|---|---|---|---|---|---|
+| c1  | **4/4**     | 188.4  | 5.43      | 7,109   | 156.8   | 150.4   |
+| c4  | **16/16**   | 408.5  | 10.03     | 29,547  | 284.7   | 277.3   |
+| c8  | **32/32**   | 602.9  | 13.59     | 37,560  | 443.5   | 419.0   |
+| c16 | **64/64**   | 1117.2 | **14.67** | 50,019  | 897.4   | 765.9   |
+| c32 | **128/128** | 2725.4 | 12.02     | 157,956 | 2,042.8 | 1,173.8 |
+
+**Min knee = c1. Max knee = c16.** Throughput scales 5.43 → 10.03 → 13.59 → 14.67 (gains 1.85x →
+1.35x → 1.08x), then **falls to 12.02 at c32** — an 18% regression, not a plateau. That distinction
+matters: the curve is emphatically *not* still climbing at c32, so c16 is a real ceiling rather than
+a `--parallel 32` cap misread as one. TPOT degrades from the very first step (156.8 → 284.7 ms at
+c4), so there is no flat-latency region beyond c1 and the latency-optimal cap is c1.
+
+**Put a production cap in [c1, c16] and never above c16** — past it you lose throughput *and*
+latency simultaneously (c32 costs 18% throughput, 3.2x TTFT and 2.3x TPOT versus c16).
+
+**Recommended `--parallel 16`, not 32** (deployment conclusion): 32 slots measurably hurt, and at a
+fixed `--ctx-size 65536` dropping to 16 also doubles per-slot context (2048 → 4096 tokens), which
+this 1024-in/256-out shape was already close to. Caveat: these points were all measured *on* a
+32-slot server, so c16-on-a-16-slot-server may differ slightly; the direction is solid, the exact
+peak is worth re-measuring if it matters.
+
+**Prefill vs decode — decode-bound at this shape.** At c1, prefill ≈ 1024 tok / 7.11 s ≈ **144 tok/s**
+and decode ≈ 1/156.8 ms ≈ **6.4 tok/s**; per request that is ~7 s of prefill against ~40 s of decode,
+about **1:5.6**. Server `prompt eval` lines agree (~120-138 tok/s at low concurrency, degrading to
+~35 tok/s per slot at c32). Boundedness is shape-dependent — sweep `IN=4096 OUT=16` vs `IN=128
+OUT=2048` to classify the box rather than this grid.
+
+**Prompt-cache A/B at c8** (both 32/32, so the setting never affected drops — the cleanest
+confirmation that the client bug was the entire story):
+
+| Conc | Successful | Duration (s) | out tok/s | Mean TTFT (ms) | Mean TPOT (ms) | server config |
+|---|---|---|---|---|---|---|
+| c8 | 32/32 | 1044.8 | 7.84 | 126,134 | 529.1 | default `--cache-ram 8192` |
+| c8 | 32/32 | 903.2  | 9.07 | 12,328  | 836.1 | `--cache-ram 0` |
+
+On *this* grid `--cache-ram 0` wins (+16% out tok/s, TTFT 12 s vs 126 s) because `random-ids`
+prompts share no prefix: the cache can never hit, so its 317 evictions of ~1.36 GB each are pure
+overhead. **Do not generalise that to production** — a real workload with shared system prompts or
+multi-turn history is exactly what the cache exists for. Benchmark with the cache off to measure the
+box; leave it on (default) to serve users, and re-measure with a prefix-sharing dataset for the real
+answer.
+
+⚠ **`--ctx-size` is the TOTAL across slots, not per-slot** — `--ctx-size 65536 --parallel 32` gives
+2048 tokens/slot. Raising `--parallel` at fixed `--ctx-size` costs **no extra KV memory** (it only
+re-partitions), but it does cap per-request context; a long-context workload needs `--ctx-size`
+raised proportionally.
+
+**Single-stream decode is CPU-offload-bound, not GPU-bound** — ~6.5 tok/s is far below what 8x RTX
+PRO 6000 Blackwell does with a fully GPU-resident model (compare Kimi-K2.6's TP=8 numbers above,
+hundreds of tok/s). The CPU-resident routed-expert compute (AMX/AVX-512, cross-NUMA) is the
+bottleneck at c1, before concurrency is a factor. Prefill runs ~120-138 tok/s (server `prompt eval`
+lines), so at this 1024-in/256-out shape decode dominates prefill roughly 5:1.
+
+### 2026-09-05 follow-ups: micro-batch size, all-VRAM quants (same grid, `--cache-ram 0`)
+
+All on the same 3ee box, same client, IN=1024 OUT=256, PROMPTS_PER=4, every point N/N successful.
+Logs in `/data/devops/kimi-k3/bench.log.*-0905*`. Server details and the quant gates behind each
+row: the `deploy-kimi-k3-on-rtx-pro-6000` skill's REFERENCE.md ("Where the time goes", "All-VRAM
+quants", "Quant gate").
+
+**E1 — hybrid UD-Q2_K_XL with `-b 4096 -ub 4096`** (baseline above used the default `-ub 512`;
+`--parallel 16` instead of 32 — irrelevant at c ≤ 8):
+
+| Conc | out tok/s | Mean TTFT (ms) | Mean TPOT (ms) | vs baseline |
+|---|---|---|---|---|
+| c1 | 5.82 | 4,668 | 154.1 | TTFT −34 % |
+| c4 | 10.16 | 15,011 | 336.4 | TTFT −49 %, TPOT +18 % |
+| c8 | 12.77 | 22,353 | 540.8 | TTFT −40 %, TPOT +22 %, tput −6 % |
+
+Prefill in hybrid mode is bound by the per-micro-batch copy of every CPU-resident expert tensor to
+GPU0 (~100 GiB, ~4.4 s), so one micro-batch per prompt instead of two is the whole effect; bigger
+prefill chunks stall decode a little longer, hence the TPOT rise under load.
+
+**E4 — UD-IQ2_XXS, all weights on GPU** (fork-lip image, `-b/-ub 2048 --fit-target 6144`, `--parallel 16`):
+
+| Conc | Successful | Duration (s) | out tok/s | Mean TTFT (ms) | Mean TPOT (ms) | Median ITL (ms) |
+|---|---|---|---|---|---|---|
+| c1  | 4/4     | —      | 10.77     | 5,560   | 71.4  | 70.9  |
+| c4  | 16/16   | —      | 24.26     | 7,874   | 134.6 | —     |
+| c8  | 32/32   | —      | **25.33** | 25,080  | 218.5 | —     |
+| c16 | 64/64   | 932.2  | 17.58     | 56,807  | 690.4 | 435.5 |
+| c32 | 128/128 | 1854.6 | 17.67     | 243,027 | 775.2 | 445.7 |
+
+**Max knee c4–c8 (≈25 tok/s), then a regression** — the mirror image of the hybrid's c16 peak. With
+every expert GPU-resident, decode is 2.2x faster (71 vs 157 ms/token) but the box becomes
+**prefill-queue-bound**: llama.cpp's K3 prefill path runs ~185 tok/s plus ~1.4 s fixed per prompt,
+so at c16+ prompts queue for minutes. Production cap for this config: **c4–c8**. Quality cost of
+this quant: KLD 0.370 vs Q2_K_XL, 84.6 % same-top-token (the skill's "Quant gate").
+
+**E5 — `UD-Q2_K_XL-REAP770` (Q2_K_XL with the 14 % least-used experts sliced off, 697 GiB), all
+weights on GPU** (fork-lip image, `-b/-ub 2048 --fit-target 6144`, `--parallel 16`; log
+`bench.log.q2kxl-reap770-allvram-p16-ub2048-cacheram0-0905`):
+
+| Conc | Successful | Duration (s) | out tok/s | Mean TTFT (ms) | Mean TPOT (ms) | Median ITL (ms) |
+|---|---|---|---|---|---|---|
+| c1  | 4/4     | —      | 7.44      | 3,640   | 120.7 | —     |
+| c4  | 16/16   | —      | 12.64     | 14,116  | 262.2 | —     |
+| c8  | 32/32   | —      | 15.79     | 18,293  | 436.4 | —     |
+| c16 | 64/64   | —      | 17.87     | 37,978  | 748.8 | —     |
+| c32 | 128/128 | 1802.8 | **18.18** | 225,207 | 788.7 | 561.1 |
+
+Same shape as the hybrid (still climbing at c32) but 1.2–1.5x its throughput and half its TTFT at
+c1–c4; slower per token than IQ2_XXS (IQ2_XS expert kernels: 121 vs 71 ms at c1) yet it batches
+better and keeps near-reference quality (KLD 0.047, 95.4 % same-top-token). Practical cap:
+**c8 (latency) to c16 (throughput)**; TTFT past c8 is prompt queueing.
+
+**E5b — REAP-770 re-swept all-GPU (2026-09-06, `--fit-target 4096`, **8 slots** = the deployed
+throughput profile; log `bench.log.q2kxl-reap770-allvram-p8-fit4096-ub2048-cacheram0-0906`; GPUs held
+735,528 MiB, i.e. every weight on GPU — the E5 curve above had ~20 GiB of experts spilled to CPU):**
+
+| Conc | Successful | out tok/s | Mean TTFT (ms) | Mean TPOT (ms) |
+|---|---|---|---|---|
+| c1  | 4/4     | 10.45     | 3,224   | 83.4  |
+| c4  | 16/16   | 19.55     | 13,213  | 153.5 |
+| c8  | 32/32   | **21.93** | 23,685  | 272.9 |
+| c16 | 64/64   | 21.75     | 97,659  | 316.2 |
+| c32 | 128/128 | 21.99     | 257,893 | 322.8 |
+
+c16 and c32 run 8-wide behind the slot cap (flat throughput, TTFT climbing linearly — the queueing
+signature), so the curve's real knee is at the cap: **c8 ≈ 22 tok/s**, 1.4x the spilled E5 numbers and
+now level with IQ2_XXS (25.3 at c8, 10.8 at c1). Use this table for REAP-770, not E5.
+
+**Three configs side by side (out tok/s / mean TTFT s / mean TPOT ms):**
+
+| Conc | hybrid UD-Q2_K_XL (09-04) | all-VRAM UD-IQ2_XXS | all-VRAM REAP-770 |
+|---|---|---|---|
+| c1  | 5.43 / 7.1 / 157 | **10.77** / 5.6 / **71** | 10.45 / **3.2** / 83 |
+| c4  | 10.03 / 29.5 / 285 | **24.26** / **7.9** / **135** | 19.55 / 13.2 / 154 |
+| c8  | 13.59 / 37.6 / 444 | **25.33** / 25.1 / **219** | 21.93 / **23.7** / 273 |
+| c16 | 14.67 / 50.0 / 897 | 17.58 / 56.8 / 690 | 21.75 / 97.7 / 316 (8-slot cap) |
+| c32 | 12.02 / 158 / 2043 | 17.67 / 243 / 775 | 21.99 / 258 / 323 (8-slot cap) |
+
+(REAP-770 column = the all-GPU re-sweep at 8 slots; the hybrid column is the 09-04 `-ub 512` curve —
+its `-ub 4096` re-sweep is below.)
+
+**E1b — hybrid UD-Q2_K_XL re-swept with `-b/-ub 4096` (2026-09-06, 16 slots, `--fit` placement,
+log `bench.log.q2kxl-hybrid-p16-ub4096-cacheram0-0906`):**
+
+| Conc | Successful | out tok/s | Mean TTFT (ms) | Mean TPOT (ms) | vs `-ub 512` (09-04) |
+|---|---|---|---|---|---|
+| c1  | 4/4     | 5.82      | 4,645   | 154.4 | TTFT −35 % |
+| c4  | 16/16   | 11.80     | 14,436  | 283.7 | TTFT −51 %, tput +18 % |
+| c8  | 32/32   | **15.96** | 22,172  | 416.0 | TTFT −41 %, tput +17 % |
+| c16 | 64/64   | 15.22     | 49,965  | 858.7 | tput +4 %, TTFT ≈ |
+| c32 | 128/128 | 15.69     | 263,305 | 904.0 | tput +31 %, TTFT +67 % |
+
+With the larger micro-batch the hybrid's throughput knee moves from c16 to **c8 (16.0 tok/s)**, and
+c16/c32 flatten at ~15.5 instead of regressing — fewer expert copies per prompt also means less decode
+stall per served token. TTFT beyond c8 is still prompt queueing. Production cap for the hybrid: c8.
+This supersedes the 09-04 curve as the hybrid's reference.
+
+**Speculative decoding (E6, on REAP-770, all at `--parallel 4`):** `--spec-type ngram-mod` gave
++5 % single-stream on a prompt that copies its own input (rewrite task: 9.93 → 10.48 tok/s, 36 % of
+drafted tokens accepted, identical greedy output) and −2–3 % on free-form prompts (verification
+overhead, no drafts). The larger effect was the slot count: no-spec c1 went from 7.44 tok/s / TPOT
+121 ms at `--parallel 16` to **8.99 tok/s / TPOT 98 ms at `--parallel 4`** (log
+`bench.log.q2kxl-reap770-p4-nospec-c1-0905`) — size the slot count to the real concurrency. **Never benchmark ngram
+speculation with `random-ids` prompts**: the model's output on random tokens degenerates into
+repetition, the drafter accepts 100 % of it and the client reports 26.5 tok/s / TPOT 24 ms / ITL 0.03 ms
+(log `bench.log.q2kxl-reap770-p4-ngram-mod-c1-0905`) — a measurement of the degenerate output, not of
+serving. DSpark (RadixArk draft, converted) needs two fixes to pay: the draft on the GPU holding the target's
+`output.weight` (`--spec-draft-device CUDA7`) and the deploy skill's `kimi-k3-rs-rollback.patch`
+(bounded recurrent-state rollback for KIMI_K3). With both, on the IQ2_XXS target at 4 slots: probes
+12.8 → 15.7 tok/s on free-form prompts (+23 %), 12.9 → 22.2 on a copy-heavy prompt (+72 %); bench c1
+13.98 tok/s / TPOT 49 ms (`bench.log.iq2xxs-p4-dspark-rsrollback-c1c4-0905`) vs 10.14 tok/s / TPOT 78 ms
+without speculation (`bench.log.iq2xxs-p4-nospec-c1c4-0905`); at c4 it loses (14.9 tok/s vs
+18.30 tok/s, TPOT 221 vs 135 ms). Without the rollback patch the same draft was −5 to −15 % on free-form
+text. Root cause, memory math and caveats in the deploy skill's REFERENCE.md.
+
+
+**Prefill knob A/Bs (IQ2_XXS, 4 slots, no draft, same binary; 2026-09-05 evening):**
+
+| config | c1 tok/s / TTFT / TPOT | c4 tok/s / TTFT / TPOT |
+|---|---|---|
+| defaults (CUDA graphs on) | 10.14 / 5.44 s / 77.7 ms | 18.30 / 21.6 s / 134.5 ms |
+| `GGML_CUDA_DISABLE_GRAPHS=1` | 8.63 / 5.83 s / 93.5 ms | 18.05 / 17.4 s / 154.0 ms |
+| `GGML_CUDA_GRAPH_OPT=1` | 10.03 / 5.50 s / 78.5 ms | 18.31 / 17.4 s / 151.0 ms |
+
+Graphs are worth ~17 % of decode; neither knob moves prefill. Logs `bench.log.iq2xxs-p4-nospec-*-c1c4-0905`.
+
+**Interactive profile (REAP-770, 2 slots x 8192, DSpark + rollback, draft on GPU 7, fork `…-lip-rsrb`):**
+c1 **12.96 tok/s, TTFT 3.95 s, TPOT 61.9 ms**; c2 14.01 tok/s, TTFT 5.9 s, TPOT 113 ms
+(`bench.log.reap770-p2-dspark-rsrollback-c1c2-0905`). Versus the no-draft REAP-770 at 4 slots
+(8.99 tok/s, TPOT 98 ms): +44 % / −37 %.
+
+**Why REAP-770 looked slower than IQ2_XXS in the E5 sweep (121 vs 71 ms TPOT at c1):** placement,
+not kernels. The 6 GiB fit margin left ~20 GiB of REAP-770's experts on the CPU (nvidia-smi total
+693.6 GiB < 697 GiB of weights); with `--fit-target 4096` everything is on GPU and decode is ~86
+ms/token at 8 slots. A K3-shaped `test-backend-ops perf -o MUL_MAT_ID` (896 experts, 16 used,
+3584x3072) puts IQ2_XS and IQ2_XXS within 5 % at batch 1 (30.5 vs 29.1 µs) and shows the expert
+matmul scaling linearly with batch up to n=16 (no batching gain) — the structural reason aggregate
+throughput saturates near 18–25 tok/s on this model. Re-sweep REAP-770 with the 4096 margin before
+quoting its curve.
+
 ## Proxy overhead (Caddy TLS + Bearer), measured 2026-06-12
 
 Same 3ed INT4 server, same client, two paths — raw LAN IP vs `--base-url https://3ed.<tailnet>` +

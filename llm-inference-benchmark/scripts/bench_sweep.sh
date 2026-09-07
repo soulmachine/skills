@@ -17,6 +17,7 @@
 set -uo pipefail
 
 BENCH_IMG="${BENCH_IMG:-lmsysorg/sglang:v0.5.12.post1-cu130}"   # the standalone bench-client image
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"      # for sse_keepalive_patch.py (see run())
 export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 MODEL_REPO="${MODEL_REPO:-moonshotai/Kimi-K2.6}"   # tokenizer source, resolved offline from the HF cache
 MODEL_NAME="${MODEL_NAME:-kimi-k2.6}"            # request `model` id — MUST match the server
@@ -62,8 +63,15 @@ run() {
   # Kimi tokenizer is a custom TikTokenTokenizer; sglang.bench_serving loads it with trust_remote_code
   # internally (no flag). random-ids needs only the tokenizer (vocab size) + the OpenAI /v1 endpoint.
   # own net namespace (no --network host) — reaches the server's PUBLISHED $TARGET_HOST:$PORT
+  # sse_keepalive_patch.py runs first, inside the client container: sglang.bench_serving
+  # feeds SSE comment/keep-alive lines (a bare ":") to json.loads and counts the resulting
+  # JSONDecodeError as a FAILED request. llama.cpp emits those keep-alives during slow
+  # prefill, so on a slow/contended server this silently voids the run — most requests are
+  # recorded as failures and the curve reads as premature saturation. Idempotent.
   docker run --rm -v "$KIMI_CACHE:/models/repo:ro" \
-    -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 --entrypoint python3 "$BENCH_IMG" \
+    -v "$SCRIPT_DIR/sse_keepalive_patch.py:/sse_keepalive_patch.py:ro" \
+    -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 --entrypoint bash "$BENCH_IMG" \
+    -lc 'python3 /sse_keepalive_patch.py >&2 && exec python3 "$@"' _ \
     -m sglang.bench_serving --backend sglang-oai --host "$TARGET_HOST" --port "$PORT" \
     --model "$MODEL_PATH" --served-model-name "$MODEL_NAME" \
     --dataset-name random-ids --num-prompts "$np" \
