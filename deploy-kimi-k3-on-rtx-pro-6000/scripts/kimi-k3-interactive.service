@@ -1,0 +1,28 @@
+# systemd unit: Kimi-K3 INTERACTIVE profile — few slots + DSpark speculative decoding for single-stream
+# latency. Same serve_docker.sh as kimi-k3.service, different env file. The two profiles cannot share
+# the GPUs, so each Conflicts= with the other: starting one stops the other.
+#   sudo systemctl start kimi-k3-interactive    # stops kimi-k3 if it is running
+#   sudo systemctl start kimi-k3                # stops kimi-k3-interactive
+[Unit]
+Description=Kimi-K3 interactive profile (llama.cpp, DSpark speculative decoding) — per /etc/kimi-k3-interactive.env
+After=docker.service network-online.target nvidia-persistenced.service
+Requires=docker.service
+Wants=network-online.target
+Conflicts=kimi-k3.service
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/var/lib/kimi-k3
+EnvironmentFile=/etc/kimi-k3-interactive.env
+ExecStart=/bin/bash /usr/local/bin/serve_docker.sh
+ExecStartPre=-/usr/bin/docker rm -f kimi-k3
+ExecStop=/usr/bin/docker stop -t 180 kimi-k3
+TimeoutStartSec=2400
+TimeoutStopSec=240
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

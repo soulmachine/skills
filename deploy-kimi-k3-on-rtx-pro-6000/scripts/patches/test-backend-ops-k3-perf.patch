@@ -1,0 +1,20 @@
+diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
+index c93e41b..18aa24e 100644
+--- a/tests/test-backend-ops.cpp
++++ b/tests/test-backend-ops.cpp
+@@ -10891,6 +10891,15 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
+     }
+ 
+ 
++    // Kimi-K3 routed experts (896 experts, 16 used; ffn_gate/up [3584 -> 3072], ffn_down [3072 -> 3584]) —
++    // compares the expert-matmul kernels of the quant types the Unsloth UD-Q2_K_XL / UD-IQ2_XXS quants use
++    for (int bs : {1, 4, 8, 16}) {
++        for (ggml_type type_a : {GGML_TYPE_IQ2_XS, GGML_TYPE_IQ2_XXS, GGML_TYPE_IQ3_XXS, GGML_TYPE_Q2_K, GGML_TYPE_Q4_K}) {
++            test_cases.emplace_back(new test_mul_mat_id(type_a, GGML_TYPE_F32, 896, 16, false, 3072, bs, 3584));
++            test_cases.emplace_back(new test_mul_mat_id(type_a, GGML_TYPE_F32, 896, 16, false, 3584, bs, 3072));
++        }
++    }
++
+     // gpt-oss-20b
+     for (int bs : {1, 4, 8, 512}) {
+         for (ggml_type type_a : {GGML_TYPE_MXFP4}) {

@@ -1,0 +1,28 @@
+diff --git a/src/models/kimi-k3.cpp b/src/models/kimi-k3.cpp
+index a4285b1..6a11950 100644
+--- a/src/models/kimi-k3.cpp
++++ b/src/models/kimi-k3.cpp
+@@ -286,6 +286,13 @@ llama_model_kimi_k3::graph::graph(const llama_model & model, const llm_graph_par
+         cur = use_attn_res ? res_mix(prefix_sum, layer.attn_res_score, n_tokens, il)
+                            : prefix_sum;
+ 
++        // per-layer input for DFlash/DSpark/EAGLE3 drafts (-md ... --spec-type draft-dspark).
++        // For K3 the "layer input" a draft was trained on is the attention-residual-mixed stream
++        // this layer's attention side consumes — what SGLang's KimiK3 _dspark_capture_stream()
++        // returns after layer il-1 — not the raw banked prefix_sum. Registering an existing
++        // tensor adds no graph nodes; it is only marked as output when a draft asks for it.
++        res->t_layer_inp[il] = cur;
++
+         bool banked = false;
+         if (use_attn_res && (uint32_t) il % res_bs == 0) {
+             res_push(prefix_sum, n_embd, n_tokens);  // banks the RAW layer input, not `cur`
+@@ -337,6 +344,9 @@ llama_model_kimi_k3::graph::graph(const llama_model & model, const llm_graph_par
+     if (use_attn_res) {
+         cur = res_mix(cur, model.output_res_score, n_tokens, -1);
+     }
++    // output-side aggregate = "after the last layer" for drafts (SGLang: last-layer capture uses
++    // the model's own output_attn_res weights). Registered before the out_ids narrowing.
++    res->t_layer_inp[n_layer] = cur;
+     if (inp_out_ids) {
+         cur = ggml_get_rows(ctx0, cur, inp_out_ids);
+     }

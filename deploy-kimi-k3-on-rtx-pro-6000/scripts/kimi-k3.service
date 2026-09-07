@@ -1,0 +1,46 @@
+# systemd unit: Kimi-K3 OpenAI-compatible API (llama.cpp, CPU+GPU hybrid) — ONE static service.
+#
+# Switch quant/build source = edit /etc/kimi-k3.env, then: sudo systemctl restart kimi-k3
+#
+# A second profile, kimi-k3-interactive.service (few slots + DSpark speculative decoding), shares the GPUs
+# and therefore Conflicts= with this one: starting either stops the other.
+#
+# This unit is installed but NOT enabled by the skill's own instructions — whether it should
+# boot-enable or stay on-demand (started manually, e.g. to avoid permanently claiming a shared
+# GPU pool) is a deployment-time decision. See the deploy directory's own README for the choice
+# actually made for this deployment.
+#
+# Install:
+#   sudo install -m755 serve_docker.sh /usr/local/bin/
+#   sudo mkdir -p /var/lib/kimi-k3
+#   sudo cp kimi-k3.env.example /etc/kimi-k3.env   # then EDIT it (bare values — see warning inside)
+#   sudo cp kimi-k3.service /etc/systemd/system/kimi-k3.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl start kimi-k3          # on-demand
+#   sudo systemctl enable --now kimi-k3   # OR boot-enabled — pick one, document which
+#   journalctl -u kimi-k3 -f
+[Unit]
+Description=Kimi-K3 (llama.cpp, CPU+GPU hybrid) OpenAI-compatible API — quant+build per /etc/kimi-k3.env
+After=docker.service network-online.target nvidia-persistenced.service
+Requires=docker.service
+Wants=network-online.target
+Conflicts=kimi-k3-interactive.service
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/var/lib/kimi-k3
+EnvironmentFile=/etc/kimi-k3.env
+ExecStart=/bin/bash /usr/local/bin/serve_docker.sh
+ExecStartPre=-/usr/bin/docker rm -f kimi-k3
+ExecStop=/usr/bin/docker stop -t 180 kimi-k3
+# Type=simple -> "active" right after fork; the cold weight load (large, CPU-bound read from
+# NVMe) happens after — give it plenty of headroom.
+TimeoutStartSec=2400
+TimeoutStopSec=240
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
