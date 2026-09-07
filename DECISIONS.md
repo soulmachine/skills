@@ -70,7 +70,7 @@
 **Decided-by:** agent
 **Justification:** The relay's bridged path was never verified (its upstream handshake timed out with no Allow click) and it hard-codes a machine-local playwright-core path. The env var reaches the attach daemon and `0` removes the deadline — measured live on playwright-cli 0.1.19 (`4000` failed at 4 s, `0` still waiting at 40 s) — so the relay solves a problem the tool already solves.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 9654b64
 
 ## Q8 — interactive/chrome-cdp-setup — deviation
 
@@ -80,7 +80,7 @@
 **Decided-by:** agent
 **Justification:** `/Applications/Google Chrome CDP.app/Contents/MacOS/launcher` on this Mac contains `exec arch -arm64`, so the HEAD script would regress the deployed wrapper on its next run; the diff applied cleanly and is the user's own work.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 9654b64
 
 ## Q9 — interactive/chrome-cdp-setup — deviation
 
@@ -90,4 +90,4 @@
 **Decided-by:** agent
 **Justification:** The snapshots carry content from the user's logged-in tabs, and a self-parenting symlink recurses under any tool that follows links. A move keeps the step reversible; a root-level `.gitignore` is outside the skill and is the user's call.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 9654b64
