@@ -91,3 +91,13 @@
 **Justification:** The snapshots carry content from the user's logged-in tabs, and a self-parenting symlink recurses under any tool that follows links. A move keeps the step reversible; a root-level `.gitignore` is outside the skill and is the user's call.
 **Outcome:** applied
 **Ref:** 9654b64
+
+## Q10 — interactive/herdr-rename-hook — deviation
+
+**Question:** Moving the skill from `~/.claude/skills/` into this repo: move the files verbatim, or also rewrite the two places where the skill named the old directory as its home (the hook header's "Source of truth" line and SKILL.md's "Another Mac" scp recipe)?
+**Options considered:** verbatim move (the old path still resolves through agentstow's link) / rewrite both references to the repo + agentstow flow and re-run install.sh so the deployed hook matches
+**Chosen:** Rewrite both references, then re-run the skill's own install.sh so `~/.claude/hooks/herdr-rename-agent.sh` carries the new header (comment-only change).
+**Decided-by:** agent
+**Justification:** `~/.agents/AGENTS.md §Skills management` makes this repo the single source of truth for self-authored skills and agentstow the per-machine fan-out. A header naming the agent dir as the source, and an scp recipe that copies the directory host to host, would steer a future agent into editing or copying outside git. The ask ("move … and use agentstow to manage it") implies the repo becomes home. The live hook wiring in settings.json / hooks.json points at the installed copy, not the skill dir, so the move itself changed no behaviour.
+**Outcome:** applied
+**Ref:** 0324140
