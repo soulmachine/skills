@@ -16,7 +16,11 @@ PORT = sys.argv[1] if len(sys.argv) > 1 else "9222"
 SHOT = str(Path.cwd() / "cdp_agent_proof.png")
 
 with sync_playwright() as p:
-    browser = p.chromium.connect_over_cdp(f"http://127.0.0.1:{PORT}")
+    # connect_over_cdp attaches to every target (tabs, iframes, service workers)
+    # and waits for each to answer. A daily-driver profile that has been up for
+    # hours with dozens of tabs can exceed Playwright's default 30 s on the
+    # first attach; the attempt wakes the idle renderers, so a retry is fast.
+    browser = p.chromium.connect_over_cdp(f"http://127.0.0.1:{PORT}", timeout=120_000)
     print(f"[1] connected: Chrome {browser.version}, contexts={len(browser.contexts)}")
 
     ctx = browser.contexts[0]

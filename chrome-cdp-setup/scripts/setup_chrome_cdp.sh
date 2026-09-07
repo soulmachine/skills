@@ -29,6 +29,15 @@ for _ in range(60):
 subprocess.run(["pkill", "-x", "Google Chrome"])
 time.sleep(2)
 PY
+# Flag-mode CDP binds its port with no fallback: if anything still holds it
+# (typically a flag-less Chrome in chrome://inspect approval mode that the
+# quit above did not reach), the wrapper would come up without CDP at all.
+HOLDER=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
+if [ -n "$HOLDER" ]; then
+    echo "ERROR: port $PORT is still held; quit or kill this first:" >&2
+    echo "$HOLDER" >&2
+    exit 1
+fi
 
 if [ -d "$UDD" ]; then
     echo "==> Profile clone already exists, reusing: $UDD"
@@ -74,17 +83,35 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# On Apple Silicon, pin the native slice. Without this, a stale LaunchServices
+# record for the wrapper can launch this script's bash under Rosetta, and exec
+# preserves translation — the whole Chrome tree then runs x86_64 at several
+# times the CPU cost (seen 2026-07-21: renderers pegged, load 15+).
+ARCH_PREFIX=""
+[ "$(uname -m)" = "arm64" ] && ARCH_PREFIX="arch -arm64 "
+
 cat > "$APP/Contents/MacOS/launcher" <<SH
 #!/bin/bash
 # Chrome 136+ ignores --remote-debugging-port on the default user-data-dir,
-# so this launches against the cloned profile dir instead.
-exec "$CHROME_BIN" --remote-debugging-port=$PORT --user-data-dir="\$HOME/Library/Application Support/Google/Chrome-CDP"
+# so this launches against the cloned profile dir instead. The flags also take
+# precedence over the Chrome 144+ chrome://inspect toggle (approval mode), so
+# no "Allow remote debugging?" prompt appears even if that toggle is on.
+# arch -arm64 (Apple Silicon only) guards against a stale LaunchServices
+# record running this script — and therefore Chrome — under Rosetta.
+exec ${ARCH_PREFIX}"$CHROME_BIN" --remote-debugging-port=$PORT --user-data-dir="\$HOME/Library/Application Support/Google/Chrome-CDP"
 SH
 chmod +x "$APP/Contents/MacOS/launcher"
 
 cp "$CHROME_APP/Contents/Resources/app.icns" "$APP/Contents/Resources/app.icns"
 codesign --force -s - "$APP"
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP"
+# Unregister then register: LaunchServices snapshots the Info.plist at first
+# registration and keys freshness on mtime. Rebuilding the bundle within the
+# same second leaves the mtime unchanged, and `lsregister -f` alone does NOT
+# replace the stale snapshot (a snapshot with LSArchitecturePriority x86_64-
+# first silently forces Rosetta). Only -u + re-register reliably purges it.
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+"$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
+"$LSREGISTER" "$APP"
 
 echo "==> Swapping Dock tile (backup: $DOCK_BACKUP)"
 [ -f "$DOCK_BACKUP" ] || defaults export com.apple.dock "$DOCK_BACKUP"
@@ -142,4 +169,18 @@ curl -s --retry 30 --retry-delay 1 --retry-all-errors "http://127.0.0.1:$PORT/js
     || { echo "ERROR: CDP endpoint never came up on port $PORT" >&2; exit 1; }
 echo
 lsof -nP -iTCP:"$PORT" -sTCP:LISTEN
+
+if [ "$(uname -m)" = "arm64" ]; then
+    echo "==> Verifying Chrome runs native (not under Rosetta)"
+    sleep 2
+    # lsappinfo printed Arch=arm64 on older macOS and Arch=ARM64 on macOS 26.
+    if lsappinfo info -app com.google.Chrome | grep -qi "Arch=arm64"; then
+        echo "    native arm64 OK"
+    else
+        echo "ERROR: Chrome is running x86_64 under Rosetta — expect multiplied CPU usage." >&2
+        echo "       Fix: quit Chrome, run '$LSREGISTER -u \"$APP\"' then '$LSREGISTER \"$APP\"'," >&2
+        echo "       and relaunch from the Dock. See REFERENCE.md 'Rosetta trap'." >&2
+        exit 1
+    fi
+fi
 echo "==> Done. Agents connect via http://127.0.0.1:$PORT"
