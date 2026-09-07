@@ -101,3 +101,43 @@
 **Justification:** `~/.agents/AGENTS.md §Skills management` makes this repo the single source of truth for self-authored skills and agentstow the per-machine fan-out. A header naming the agent dir as the source, and an scp recipe that copies the directory host to host, would steer a future agent into editing or copying outside git. The ask ("move … and use agentstow to manage it") implies the repo becomes home. The live hook wiring in settings.json / hooks.json points at the installed copy, not the skill dir, so the move itself changed no behaviour.
 **Outcome:** applied
 **Ref:** 0324140
+
+## Q11 — interactive/fleet-skills-clone — gate-resolution
+
+**Question:** The ask was to "git clone" this repo to `~/github.com` on seven hosts. One (mac-mini-m2) is the machine the session runs on, five already held a clone that was behind origin, and only dev-server-frank-lume had none. Where exactly to clone, and what to do with the existing clones?
+**Options considered:** clone literally to `~/github.com/skills` beside the existing clones / re-clone over them / fast-forward the existing clones and clone only where absent
+**Chosen:** Path `~/github.com/soulmachine/skills` everywhere; `git pull --ff-only` on the five existing clones; a fresh clone only on dev-server-frank-lume; nothing on mac-mini-m2.
+**Decided-by:** agent
+**Justification:** `~/.agents/AGENTS.md §Skills management` names that path and every existing clone already used it. All five were clean, on `main`, tracking `origin/main`, strictly behind with no local commits, so a fast-forward was lossless. Every host ended at `15ee6ba`.
+**Outcome:** applied
+**Ref:** none — host-side only
+
+## Q12 — interactive/fleet-skills-clone — gate-resolution
+
+**Question:** agentstow was absent on mac-mini-2018, macbook-pro-nickel, archs-mac-mini and dev-server-frank-lume, yet the ask needs it there. Install it, or stop and report?
+**Options considered:** report and skip those hosts / `brew install agentstow/tap/agentstow` (unbottled; pulls Homebrew's own rust) / `cargo install agentstow` from crates.io (how macbook-air and mac-studio-m3 hold it) / copy a built binary from another host
+**Chosen:** `cargo install agentstow` (2.0.5, crates.io) on all four. agentstow 2.0.5 needs rustc ≥ 1.97 and three of the hosts had stable 1.96.0, so `rustup update stable` ran first on those.
+**Decided-by:** agent
+**Justification:** Every host already had rustup and cargo; two fleet hosts hold agentstow exactly this way (`~/.cargo/.crates.toml`). Homebrew's formula is unbottled and would add a second Rust; a copied binary would be untracked by cargo. Updating the `stable` channel is what that channel is for, and `rustup toolchain install 1.96.0` reverses it.
+**Outcome:** applied
+**Ref:** none — host-side only
+
+## Q13 — interactive/fleet-skills-clone — gate-resolution
+
+**Question:** "Skills in `~/.claude/skills` that have the same name" — only plain directories sitting directly in `~/.claude/skills`, or also names that resolve through `~/.agents/skills` to a copied real directory in the Commons (installed earlier with the `skills` CLI), plus a hand-made link straight into the repo? And what to do with a copy whose content differs from the repo?
+**Options considered:** narrow (real dirs directly in `~/.claude/skills`) / broad (every repo-named entry not already a Sourced link); delete copies outright / keep a backup of any copy that differs
+**Chosen:** Broad. Each copy was classified by content: every file's blob had to exist in the repo's history (or equal the pre-edit herdr-rename-hook files from Q10) at a path present in HEAD — then it was removed; anything else would have been moved to `~/.claude/skills.pre-agentstow-20260906/` or `~/.agents/skills.pre-agentstow-20260906/`. Then `agentstow adopt <repo>/<name>` and `agentstow sync`, and the matching `~/.agents/.skill-lock.json` entries were removed (a dated backup of the lock file kept beside it). On archs-mac-mini a hand-made absolute link for ssh-claude-auth in `~/.claude/skills`, which agentstow reports as foreign and never touches, was replaced by the canonical relative link.
+**Decided-by:** agent
+**Justification:** `~/.agents/AGENTS.md §Skills management`: a real directory in the Store means third-party (skills CLI + lock file), a symlink means self-authored from this repo. mac-studio-m3 and mac-mini-m2 already showed that end state (all Sourced, no lock entries). The blob check makes "stale copy" and "local edit" distinguishable, so nothing edited locally could be deleted. In the event every copy on every host matched history, so nothing was moved and no backup directory was created; only the dated lock-file backups exist.
+**Outcome:** applied
+**Ref:** none — host-side only
+
+## Q14 — interactive/fleet-skills-clone — deviation
+
+**Question:** Once herdr-rename-hook pointed at the repo, the skill's own `install.sh --check` reported the deployed hook as "drifted" on every host where it is installed, because Q10 changed the script's header comment. Re-run the installer there, or leave it to the user?
+**Options considered:** leave it / run `install.sh` only where the hook is already installed / install the hook everywhere
+**Chosen:** Ran `install.sh` only where `--check` showed the hook installed with its settings entries ok: macbook-air, mac-studio-m3, dev-server-frank-lume, mac-mini-2018, macbook-pro-nickel and archs-mac-mini (the hook was installed on all six). No new installs.
+**Decided-by:** agent
+**Justification:** This session's edit caused the drift; the installer is idempotent (settings reported "already"), the change is comment-only, and editing the script does not re-trigger Codex's trust prompt (SKILL.md). Every host afterwards passed `--check`.
+**Outcome:** applied
+**Ref:** 0324140 (the header change)
