@@ -39,6 +39,13 @@ urlenc() {
   print -r -- "$out"
 }
 
+# --- 0. Dark wake (lid closed / maintenance wake): nothing to do, and no user to serve.
+#        The wake trigger fires on every power-state change; only a full wake with the display
+#        on is worth the ~60 s connect attempt, which would otherwise burn battery every hour.
+if /usr/sbin/ioreg -r -k AppleClamshellState -d 4 2>/dev/null | /usr/bin/grep -q '"AppleClamshellState" = Yes'; then
+  exit 0
+fi
+
 # --- 1. Wait for the network and the server, up to ~60 s (covers the login-time race) --------
 integer ok=0
 for i in {1..20}; do

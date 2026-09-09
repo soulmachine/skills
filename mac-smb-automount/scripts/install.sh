@@ -41,6 +41,14 @@ cat > "$PLIST" <<PL
 	<key>RunAtLoad</key><true/>
 	<key>StartInterval</key><integer>300</integer>
 	<key>WatchPaths</key><array><string>/var/run/resolv.conf</string></array>
+	<key>LaunchEvents</key>
+	<dict>
+		<key>com.apple.notifyd.matching</key>
+		<dict>
+			<key>com.apple.powermanagement.systempowerstate</key>
+			<dict><key>Notification</key><string>com.apple.powermanagement.systempowerstate</string></dict>
+		</dict>
+	</dict>
 	<key>ProcessType</key><string>Background</string>
 	<key>StandardErrorPath</key><string>$HOME/Library/Logs/mount-smb-shares.err.log</string>
 </dict>

@@ -5,7 +5,7 @@ description: Auto-mount another Mac's SMB shares on macOS at login and keep them
 
 # Auto-mount a Mac's SMB shares
 
-Deploys `scripts/mount-smb-shares.sh` behind a LaunchAgent on the **client** Mac so the **server** Mac's shares sit at `/Volumes/<share>` after login and come back by themselves after sleep, network changes and server hiccups. Both Macs signed into the same Apple ID is the normal case, and then no password exists anywhere in the setup.
+Deploys `scripts/mount-smb-shares.sh` behind a LaunchAgent on the **client** Mac so the **server** Mac's shares sit at `/Volumes/<share>` after login and come back by themselves after sleep, network changes and server hiccups. Triggers: login, every 300 s, `/var/run/resolv.conf` changes, and every power-state change (`com.apple.powermanagement.systempowerstate`, the same event Time Machine's helper wakes on) so a wake from sleep remounts within seconds instead of waiting for the interval — which launchd stretches well past 5 min on battery. The script exits at once when the lid is closed, so dark wakes cost nothing. Both Macs signed into the same Apple ID is the normal case, and then no password exists anywhere in the setup.
 
 ## Facts every step rests on
 
