@@ -63,12 +63,23 @@ trap 'rm -f "$tmp"' EXIT
 case "$action" in sync|codex-watch) ;; *) cat >"$tmp" ;; esac
 
 HERDR_HOOK_INPUT_FILE="$tmp" HERDR_HOOK_ACTION="$action" HERDR_HOOK_SELF="$0" python3 - <<'PY' || true
-import json, os, re, subprocess, sys, time, unicodedata
+import json, os, re, shutil, subprocess, sys, time, unicodedata
 from datetime import datetime
+
+def _herdr_bin():
+    """HERDR_BIN_PATH names the binary as it was when the pane launched, so it outlives a move
+    (Homebrew -> ~/.local/bin) and every rename then fails as cli_error. Take the first that
+    actually exists."""
+    for path in (os.environ.get("HERDR_BIN_PATH"), shutil.which("herdr"),
+                 os.path.expanduser("~/.local/bin/herdr"), "/opt/homebrew/bin/herdr"):
+        if path and os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return "herdr"
+
 
 ACTION = os.environ.get("HERDR_HOOK_ACTION", "")
 PANE = os.environ["HERDR_PANE_ID"]
-HERDR = os.environ.get("HERDR_BIN_PATH") or "/opt/homebrew/bin/herdr"
+HERDR = _herdr_bin()
 SELF = os.environ.get("HERDR_HOOK_SELF", "")
 LOG = os.path.expanduser("~/Library/Logs/herdr-rename-agent.log")
 SIDECAR = "custom-title.json"
