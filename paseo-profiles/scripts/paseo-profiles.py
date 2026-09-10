@@ -36,8 +36,14 @@ SYNCED_SETTINGS = (
     "agents.providers.omp.enabled",
 )
 
-# paseo is not on the non-interactive ssh PATH on every host.
-PASEO_FALLBACKS = ("/opt/homebrew/bin/paseo", "/usr/local/bin/paseo")
+# paseo is not on the non-interactive ssh PATH on every host.  The Homebrew
+# binary is itself only a symlink into the app bundle, so a Mac with Paseo.app
+# installed but never `brew link`ed still has a working CLI at the last path.
+PASEO_FALLBACKS = (
+    "/opt/homebrew/bin/paseo",
+    "/usr/local/bin/paseo",
+    "/Applications/Paseo.app/Contents/Resources/bin/paseo",
+)
 
 # Remote staging path for `push`; per-uid so a shared host has no permission clash.
 REMOTE_SCRIPT = '/tmp/paseo-profiles-$(id -u).py'
@@ -298,6 +304,10 @@ def do_push(args) -> int:
 
     rc = 0
     for host in args.hosts:
+        # The remote labels its own output with its hostname, which need not
+        # resemble the ssh target ("Mac" for macbook-pro-nickel); name the
+        # target so a fleet push stays readable.
+        print(f"--- {host}", flush=True)
         try:
             subprocess.run(
                 ["ssh", host, f'p={REMOTE_SCRIPT}; cat > "$p"'],
