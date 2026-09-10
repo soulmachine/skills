@@ -27,7 +27,7 @@ description: Attach popular brand prefixes/suffixes to a seed word and check ava
 
    With many candidates, pass them on stdin instead: `printf '%s\n' "${cands[@]}" | … --stdin`.
 
-   Pass **bare names, not domains** — the script forms `name.tld` itself. Output is one `<domain>\tFREE|TAKEN|UNKNOWN` line per lookup. A full 67-affix escalated sweep is ~540 lookups and takes roughly 30–60s, paced by the serial `.app` path.
+   Pass **bare names, not domains** — the script forms `name.tld` itself. Output is one `<domain>\tFREE|TAKEN|UNKNOWN` line per lookup. A full 68-affix escalated sweep is ~550 lookups and takes roughly 30–60s, paced by the serial `.app` path.
 
    **`UNKNOWN` is not `FREE`.** It means the registry never gave a clean answer. Never show it as available; re-run those few names, and if they stay UNKNOWN, say so explicitly.
 
@@ -102,14 +102,15 @@ auto-added: the era's dominant suffix is a trailing "AI" word (~60 hot companies
 | 19 | ever- | Scale & depth | 0 | permanence (Evernote) |
 | 20 | real- | Newness & openness | 0 | authentic (RealPage) |
 | 21 | neo- | Newness & openness | 0 | new wave (Neobank) |
-| 22 | use- | Call-to-action | 0 | utility (Usebutton) |
-| 23 | try- | Call-to-action | 0 | low-commitment invite |
-| 24 | ultra- | Scale & depth | 0 | extreme |
-| 25 | meta- | Newness & openness | 0 | beyond (Meta) |
-| 26 | meet- | Call-to-action | 0 | introduction (MeetUp-style) |
-| 27 | agentic- | AI & agents | 0 | agent-native workflows (agentic AI wave) |
-| 28 | join- | Call-to-action | 0 | community invite |
-| 29 | every- | Scale & depth | 0 | universality (Everlane-like) |
+| 22 | hyper- | Scale & depth | 0 | past the limit (Hyperloop, Hyperscience) |
+| 23 | use- | Call-to-action | 0 | utility (Usebutton) |
+| 24 | try- | Call-to-action | 0 | low-commitment invite |
+| 25 | ultra- | Scale & depth | 0 | extreme |
+| 26 | meta- | Newness & openness | 0 | beyond (Meta) |
+| 27 | meet- | Call-to-action | 0 | introduction (MeetUp-style) |
+| 28 | agentic- | AI & agents | 0 | agent-native workflows (agentic AI wave) |
+| 29 | join- | Call-to-action | 0 | community invite |
+| 30 | every- | Scale & depth | 0 | universality (Everlane-like) |
 
 ## Suffix catalog — ranked
 

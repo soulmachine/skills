@@ -47,6 +47,8 @@ corpus + method: `~/github.com/soulmachine/llm-wiki/raw/agent-notes/ai-startup-n
 | 28 | 28 = | **join-** | 5 (0·3·2) | 0 (0) | — |
 | 29 | 29 = | **every-** | 4 (0·2·2) | 0 (0) | — |
 
+Post-snapshot addition: **hyper-** was added to the SKILL.md catalog at **#22** (scored 7 = 0·4·3 by the same formula, no corpus evidence — it was never counted in this 433-company snapshot). Ranks 22–29 above therefore sit one row lower in SKILL.md.
+
 ## Suffixes
 
 | New # | Old # | Suffix | Score /20 (2E·F·M) | Hot-startup uses (weighted) | Examples from corpus |
