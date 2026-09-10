@@ -36,10 +36,12 @@ SYNCED_SETTINGS = (
     "agents.providers.omp.enabled",
 )
 
-# paseo is not on the non-interactive ssh PATH on every host.  The Homebrew
-# binary is itself only a symlink into the app bundle, so a Mac with Paseo.app
-# installed but never `brew link`ed still has a working CLI at the last path.
+# paseo is not on the non-interactive ssh PATH on every host.  Hosts moved off
+# Paseo.app run the npm CLI through a mise shim; the two Homebrew paths and the
+# app bundle cover hosts still on the desktop app, whose Homebrew binary is
+# itself only a symlink into that bundle.
 PASEO_FALLBACKS = (
+    os.path.expanduser("~/.local/share/mise/shims/paseo"),
     "/opt/homebrew/bin/paseo",
     "/usr/local/bin/paseo",
     "/Applications/Paseo.app/Contents/Resources/bin/paseo",
