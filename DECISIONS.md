@@ -141,3 +141,43 @@
 **Justification:** This session's edit caused the drift; the installer is idempotent (settings reported "already"), the change is comment-only, and editing the script does not re-trigger Codex's trust prompt (SKILL.md). Every host afterwards passed `--check`.
 **Outcome:** applied
 **Ref:** 0324140 (the header change)
+
+## Q15 — apple-design/skill — deviation
+
+**Question:** The reference implementation (dickwu/apple-design-skill) pulls the HIG with a 779-line Node script, keeps only iOS/iPadOS/macOS pages (122), relabels platform headings by device class, and drops tvOS/visionOS/watchOS sections. Mirror that, or pull the whole HIG as Apple publishes it?
+**Options considered:** port the Node script as-is / Python port with the same platform filter / Python, all six platforms, Apple's own headings
+**Chosen:** Python (stdlib only, ~300 lines), all 158 article pages, Apple's headings and wording unchanged; collections folded into `references/hig-index.md`.
+**Decided-by:** agent
+**Justification:** The ask names developer.apple.com/design as a whole, and the reference's filter exists to serve Flutter/Electron reviewers; the fleet's own targets (FastSession iOS + macOS, watch/TV/Vision left open) gain nothing from discarding platforms and lose the `Platforms` column as a routing signal. Every fleet host has python3 and not every one has Node 18 on the login PATH. Verified: live pull and cached pull produce identical output; a second run writes nothing; no `doc://` identifiers leak.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q16 — apple-design/skill — tradeoff
+
+**Question:** Committing 1.9 MB of Apple-authored HIG text into this public repo, versus fetching pages on demand at task time.
+**Options considered:** commit the generated pages / commit only the index and fetch pages live / commit nothing and always fetch
+**Chosen:** Commit the generated pages.
+**Decided-by:** agent
+**Justification:** Offline, deterministic, greppable references are the point of the skill; a live fetch per task costs seconds, needs network on every host, and cannot be cited by stable file › heading. The reference repo publishes the same material the same way. The text stays Apple's (source URL in every file header); nothing is paraphrased as ours.
+**Outcome:** assumed
+**Ref:** (pending)
+
+## Q17 — apple-design/skill — gate-resolution
+
+**Question:** Skill name: `apple-design` collides with the reference repo's skill name if it is ever installed via the `skills` CLI alongside this one.
+**Options considered:** `apple-design` / `apple-hig` / `apple-design-guidelines`
+**Chosen:** `apple-design`.
+**Decided-by:** agent
+**Justification:** The reference is not installed on any fleet host (no `apple-*` entry in `~/.agents/skills` or the lock file), this skill supersedes it here, and `agentstow` refuses a duplicate name rather than silently overwriting.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q18 — apple-design/skill — deviation
+
+**Question:** `~/.agents/AGENTS.md §Skills management` says to run `agentstow sync` after adding a skill. Its dry run on mac-mini-m2 lists 10 changes, none about apple-design: it would prune stale `herdr` and `multica-cli` links in `~/.claude/skills` and rewrite the `gmail` and `google-calendar` MCP entries in Claude's config, which drifted from the Commons in `env` and `type` before this session. Run it anyway, or stop at `adopt`?
+**Options considered:** run sync as instructed / stop at adopt and report / run sync after excluding the MCP restore (no such flag)
+**Chosen:** Stop at `adopt`, which already linked apple-design into claude, pi, and hermes; leave `sync` unrun.
+**Decided-by:** agent
+**Justification:** The instruction's purpose (fan the new skill out) is met by `adopt`. The extra changes touch an MCP config in use by the running session with a token-bearing `env` whose intended value is unknown to the agent; running it later is one command, undoing an unwanted restore is not.
+**Outcome:** assumed
+**Ref:** (pending)
