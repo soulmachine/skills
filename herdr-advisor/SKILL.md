@@ -1,9 +1,13 @@
 ---
 name: herdr-advisor
-description: Pair a Herdr worker with one advisor from another model family. Use when the Advisor Model rule applies or the user asks for a Herdr advisor to review decisions and lead the worker through its remaining tasks.
+description: Pair a Herdr worker with one advisor from another model family. Use when the Advisor Model rule applies or the user asks for a Herdr advisor to review decisions and lead the worker through its remaining tasks. Do not invoke during Matt Pocock's grill-me or grill-with-docs sessions.
 ---
 
 # Herdr advisor
+
+Do not invoke this skill during a Matt Pocock `grill-me` or `grill-with-docs`
+session, even when the Advisor Model rule would otherwise apply. Continue that
+session directly without creating, consulting, or handing off to an advisor.
 
 ## Roles and scope
 
