@@ -181,3 +181,33 @@
 **Justification:** The instruction's purpose (fan the new skill out) is met by `adopt`. The extra changes touch an MCP config in use by the running session with a token-bearing `env` whose intended value is unknown to the agent; running it later is one command, undoing an unwanted restore is not.
 **Outcome:** assumed
 **Ref:** (pending)
+
+## Q19 — herdr-rename-hook/fleet — deviation
+
+**Question:** The skill's own "Another Mac" recipe ends in `agentstow sync`, but Q18 deliberately left `sync` unrun on mac-mini-m2 because it would rewrite the `gmail` and `google-calendar` MCP entries whose `env` carries a credential. Run the recipe as written on the six other hosts, or stop at `adopt` there too?
+**Options considered:** run the recipe as written / stop at `adopt` on every host / run sync only where no MCP drift exists
+**Chosen:** Ran the full recipe on all six other hosts; mac-mini-m2 still has `sync` unrun.
+**Decided-by:** agent, with the user's "go" on the recipe as quoted to them
+**Justification:** Checked afterwards: no host except mac-mini-m2 has a `gmail` or `google-calendar` entry in `~/.claude.json` at all, so the Q18 hazard had no object there. The only token-shaped oddity found, `TAILSCALE_API_KEY: ""` on macbook-pro-nickel, has no Commons source (`TAILSCALE_MCP_PRESET` appears nowhere under `~/.agents`), so `sync` did not create it. Sync reported 16-45 changes per host, which is the backlog of every other pending skill change, not this one.
+**Outcome:** applied
+**Ref:** 8b819b9
+
+## Q20 — herdr-rename-hook/fleet — gate-resolution
+
+**Question:** `agentstow sync` reports the same conflict on 5 of 7 hosts: `~/.gemini/GEMINI.md` and `~/.config/opencode/AGENTS.md` are owned by claude-mem, "move or merge it, then sync again". Resolve it so sync runs clean?
+**Options considered:** move the claude-mem file aside and let sync own the path / merge both contents into the path / leave the conflict standing
+**Chosen:** Leave it standing. Do not hand those paths to agentstow.
+**Decided-by:** agent
+**Justification:** agentstow places instruction files as symlinks into the Commons (`~/.codex/AGENTS.md -> ../.agents/AGENTS.md`, `~/.pi/agent/AGENTS.md -> ../../.agents/AGENTS.md`). The files in conflict are 156- and 241-byte claude-mem `<claude-mem-context>` stubs that claude-mem rewrites wholesale. Give it a symlink and its next write lands *inside* `~/.agents/AGENTS.md`, the single source of truth that fans out to every agent on every host. The conflict is the guard, not the bug; a cosmetic warning is the cheaper half of that trade. A real fix belongs upstream: an ignore list in agentstow, or claude-mem appending instead of owning the file.
+**Outcome:** assumed
+**Ref:** (pending)
+
+## Q21 — herdr-rename-hook/skill — gate-resolution
+
+**Question:** The tab follows its tab's "first" pane. Should "first" mean oldest (creation order) rather than first in layout order?
+**Options considered:** layout order / decode creation order from `terminal_id`'s counter / claim-based ownership recorded per tab
+**Chosen:** Layout order, `pane layout` -> `.result.layout.panes[0]`.
+**Decided-by:** agent
+**Justification:** Measured on herdr 0.9.0-preview: `tab get` exposes no root-pane id, `pane list` returns the same geometric traversal as `pane layout`, and pane ids are not monotonic with creation order (`p1Y`, `p1Z`, `p10`, `p21` were created in that order). `pane split` offers only `right` and `down`, so a new pane cannot take the first slot by splitting — the case originally feared is unreachable. Only `pane swap`/`pane move` can reorder, and after a deliberate swap the leftmost pane is what the user calls first, so following it is right. The only signal that does track creation is the undocumented `term_<hex>.<hex>` counter in `terminal_id`, whose format and reset behaviour are not contracted; parsing it would misorder silently if either changed.
+**Outcome:** applied
+**Ref:** (pending)
