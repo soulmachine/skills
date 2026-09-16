@@ -43,8 +43,12 @@
 #   herdr agent rename "$HERDR_PANE_ID" <slug>   slug = title mapped to [a-z][a-z0-9_-]{0,31};
 #                                                if another live agent holds it: <slug>-2 … <slug>-9
 #   herdr pane rename  "$HERDR_PANE_ID" <label>  label = the title as typed, whitespace collapsed
-#   herdr tab rename   <tab_id> <label>          tab_id is read live from `herdr pane get`, so a
-#                                                pane moved to another tab labels the right one
+#   herdr tab rename   <tab_id> <label>          only when this pane is the tab's FIRST pane: a tab
+#                                                carries its first pane's name, so a later pane of a
+#                                                split tab labels itself and leaves the tab alone.
+#                                                The tab id and the pane order come live from
+#                                                `herdr pane layout`, so a pane moved to another tab
+#                                                is judged against the tab it is in now
 # The three run independently: one failing does not stop the others. A cleared title
 # (custom-title.json deleted) leaves all three names as they are.
 # Outside a Herdr pane (HERDR_ENV != 1) it exits immediately and prints nothing.
@@ -190,6 +194,20 @@ def current_pane():
     return result_obj(out, "pane") if ok else None
 
 
+def tab_of_pane():
+    """(tab_id, is_first_pane) for this pane, from its tab's ordered pane list. A tab carries the
+    name of its first pane, so a later pane of a split tab must not retitle it. ponytail: "first"
+    is layout order (panes[0]); Herdr exposes no root-pane id on `tab get`."""
+    ok, out, _, _ = herdr("pane", "layout", "--pane", PANE, timeout=5)
+    layout = result_obj(out, "layout") if ok else None
+    if layout is None:  # no layout to judge against: fall back to the env tab, as before
+        return os.environ.get("HERDR_TAB_ID") or "", True
+    tab = layout.get("tab_id") or os.environ.get("HERDR_TAB_ID") or ""
+    panes = layout.get("panes")
+    ids = [p.get("pane_id") for p in panes if isinstance(p, dict)] if isinstance(panes, list) else []
+    return (tab if isinstance(tab, str) else ""), (not ids or ids[0] == PANE)
+
+
 def current_agent():
     """(present, name, error_code) for the agent hosted by this pane."""
     ok, out, code, _ = herdr("agent", "get", PANE)
@@ -221,17 +239,20 @@ def rename_to(slug, deadline):
         return None, f"{code}: {msg}" if msg else code
 
 
-def relabel(label, pane=None):
-    """Label this pane and the tab it sits in. Returns (errors, tab_id); errors empty = both done."""
+def relabel(label):
+    """Label this pane, and its tab only when this is the tab's first pane. Returns
+    (errors, tab_id), tab_id None when the tab was left alone; errors empty = all that applied
+    was done."""
     errors = []
     ok, _, code, msg = herdr("pane", "rename", PANE, label, timeout=5)
     if not ok:
         errors.append(f"pane {PANE}: {code}" + (f": {msg}" if msg else ""))
-    if pane is None:
-        pane = current_pane()
-    tab = (pane or {}).get("tab_id") or os.environ.get("HERDR_TAB_ID") or ""
-    if not isinstance(tab, str) or not tab:
+    tab, first = tab_of_pane()
+    if not tab:
         errors.append(f"tab of {PANE}: not found")
+        return errors, None
+    if not first:
+        log(f"{PANE} is not the first pane of {tab}; leaving the tab label")
         return errors, None
     ok, _, code, msg = herdr("tab", "rename", tab, label, timeout=5)
     if not ok:
@@ -240,9 +261,9 @@ def relabel(label, pane=None):
 
 
 def fill_blanks(title, sid, agent_wait=45.0, tag="sync"):
-    """Fill in only what is blank after a title the session already had: an unlabelled pane and
-    its tab get the label, an unnamed agent gets the slug. Anything already named is left alone,
-    so labels set by an earlier rename or by hand survive."""
+    """Fill in only what is blank after a title the session already had: an unlabelled pane (and
+    its tab, when this is the tab's first pane) gets the label, an unnamed agent gets the slug.
+    Anything already named is left alone, so labels set by an earlier rename or by hand survive."""
     if not title:
         return
     slug, label = slugify(title, sid), labelize(title)
@@ -253,8 +274,10 @@ def fill_blanks(title, sid, agent_wait=45.0, tag="sync"):
     elif pane.get("label"):
         log(f"{tag}: pane already labelled {pane.get('label')!r}; leaving pane and tab (title {title!r})")
     else:
-        errors, tab = relabel(label, pane)
-        log(f"{tag}: title {title!r} -> pane {PANE} + tab {tab or '?'} labelled {label!r}"
+        errors, tab = relabel(label)
+        log(f"{tag}: title {title!r} -> pane {PANE}"
+            + (f" + tab {tab}" if tab else "")
+            + f" labelled {label!r}"
             + (f"; failed: {'; '.join(errors)}" if errors else ""))
     deadline = time.monotonic() + agent_wait
     while True:  # wait for Herdr to recognise the agent in this pane
@@ -283,7 +306,9 @@ def mirror(title, sid, announce=True, tag=""):
     if name is None:
         errors.insert(0, f"agent {PANE}: {err}")
     log((f"{tag}: " if tag else "")
-        + f"title {title!r} -> agent {name!r}, pane {PANE} + tab {tab or '?'} labelled {label!r}"
+        + f"title {title!r} -> agent {name!r}, pane {PANE}"
+        + (f" + tab {tab}" if tab else "")
+        + f" labelled {label!r}"
         + (f"; failed: {'; '.join(errors)}" if errors else ""))
     if not announce:
         return

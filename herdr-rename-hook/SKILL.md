@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Herdr rename hook
 
-One installed script, `~/.claude/hooks/herdr-rename-agent.sh`, serves both Claude Code and Codex. Whatever notices the rename, the mirroring onto the calling pane is the same three commands: `herdr agent rename` (the title slugified to Herdr's agent-name rules), then `herdr pane rename` and `herdr tab rename` (the title as typed, whitespace collapsed; the tab is looked up live from the pane). The bundled `scripts/herdr-rename-agent.sh` is the source of truth — its header carries the mechanism, the slug and collision rules; edit there and re-run `install.sh`.
+One installed script, `~/.claude/hooks/herdr-rename-agent.sh`, serves both Claude Code and Codex. Whatever notices the rename, the mirroring onto the calling pane is the same three commands: `herdr agent rename` (the title slugified to Herdr's agent-name rules), then `herdr pane rename` and — only when the pane is the first pane of its tab — `herdr tab rename` (the title as typed, whitespace collapsed; the tab id and the pane order are read live from `herdr pane layout`). The bundled `scripts/herdr-rename-agent.sh` is the source of truth — its header carries the mechanism, the slug and collision rules; edit there and re-run `install.sh`.
 
 **Claude Code** has no hook event for `/rename`, but `/rename` writes the session's `custom-title.json` sidecar. A `SessionStart` hook registers that file as a `FileChanged` watch path (`hookSpecificOutput.watchPaths`); the `FileChanged` hook does the renaming.
 
@@ -16,7 +16,7 @@ One installed script, `~/.claude/hooks/herdr-rename-agent.sh`, serves both Claud
 The watcher exits when the pane stops hosting that session, when a newer watcher claims the pane (claim file `~/.cache/herdr-rename/<pane>.watch`), or after 24 h.
 
 Behaviour worth telling the user:
-- A tab takes the title of whichever session in it renamed last; single-pane tabs, the usual layout, simply follow their session.
+- A tab carries the name of its **first** pane. A single-pane tab, the usual layout, simply follows its session; in a split tab only the first pane's renames reach the tab, and every later pane relabels itself and leaves the tab title alone. "First" is layout order (`pane layout` → `.result.layout.panes[0]`), because Herdr exposes no root-pane id on `tab get`; splitting *leftwards* therefore hands the tab to the new pane.
 - Filling in only what is blank — an unnamed agent gets the slug, an unlabelled pane and its tab get the title, anything already set stays — is what happens on Claude `SessionStart` with an existing title (resume, or an old session in a fresh pane) and on Codex's first-turn auto-title.
 - Clearing the title (`/rename` with no name) changes nothing in Herdr.
 - Codex needs `[features] hooks = true` in `~/.codex/config.toml` (the installer reports it if missing), and asks you to trust a new or changed hook the next time it starts — pick "Trust all and continue". Editing the hook's *command string* re-triggers that prompt; editing the script it points at does not.
