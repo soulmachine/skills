@@ -34,7 +34,7 @@ Use one advisor from a different model family:
 | Worker model | Advisor model | Herdr kind | Native arguments |
 |---|---|---|---|
 | GPT | `claude-fable-5-1` | `claude` | `--dangerously-skip-permissions --effort xhigh --model claude-fable-5-1` |
-| Anything else | `gpt-6-astra` | `codex` | `--yolo -c model_reasoning_effort=high -m gpt-6-astra` |
+| Anything else | `gpt-6-astra` | `codex` | `--yolo -c model_reasoning_effort=xhigh -m gpt-6-astra` |
 
 Reuse the worker's existing advisor after checking its identity, model family,
 workspace, tab, and working directory. Otherwise create a **vertical split**,
