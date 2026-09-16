@@ -211,3 +211,13 @@
 **Justification:** Measured on herdr 0.9.0-preview: `tab get` exposes no root-pane id, `pane list` returns the same geometric traversal as `pane layout`, and pane ids are not monotonic with creation order (`p1Y`, `p1Z`, `p10`, `p21` were created in that order). `pane split` offers only `right` and `down`, so a new pane cannot take the first slot by splitting — the case originally feared is unreachable. Only `pane swap`/`pane move` can reorder, and after a deliberate swap the leftmost pane is what the user calls first, so following it is right. The only signal that does track creation is the undocumented `term_<hex>.<hex>` counter in `terminal_id`, whose format and reset behaviour are not contracted; parsing it would misorder silently if either changed.
 **Outcome:** applied
 **Ref:** (pending)
+
+## Q22 — interactive/herdr-advisor — gate-resolution
+
+**Question:** The user repeatedly requested edits to herdr-advisor after being told the skill was absent. Create the skill or ask for its location again?
+**Options considered:** create it from the existing Advisor Model procedure and the requested additions / repeat the location question
+**Chosen:** Create herdr-advisor in this repository, then commit, adopt, and sync it locally. Include the requested same-tab vertical split, worker/advisor glossary, and three-source continuation loop. Leave AGENTS.md unchanged.
+**Decided-by:** agent
+**Justification:** The continued requests specify the intended skill behavior and imply making that skill available. Creating a new directory is reversible and preserves the existing instructions. The canonical location and installation procedure come from ~/.agents/AGENTS.md, Skills management.
+**Outcome:** assumed
+**Ref:** herdr-advisor/SKILL.md
