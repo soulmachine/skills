@@ -11,8 +11,14 @@ session directly without creating, consulting, or handing off to an advisor.
 
 ## Roles and scope
 
-- **Worker:** the main Herdr agent doing the user's work.
-- **Advisor:** the Herdr agent that advises the worker and leads it to the next task.
+- **Worker:** the main Herdr agent doing the user's work. It makes every change.
+- **Advisor:** the read-only Herdr agent that advises the worker and leads it to
+  the next task. It never edits; it tells the worker what to change.
+
+The read-only rule follows the advisor model itself, which "runs without tools
+and without context management" so that "only the advice text reaches the
+executor" — see the [advisor tool
+documentation](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool).
 
 Only the worker creates the pair. The advisor is a leaf agent: never create another
 advisor, delegate a review, or ask the worker to advise you. The assignment defines
@@ -33,15 +39,74 @@ Use `<worker-name>-advisor`; shorten the base to at most 24 characters and check
 for collisions. If the worker is unnamed, choose a descriptive base. Agent names
 must match `[a-z][a-z0-9_-]{0,31}`.
 
-Use one advisor from a different model family:
+Use one advisor from a different model family. The advisor is **read-only**: it
+reads, searches, and drives the worker through `herdr`, but never creates,
+edits, or deletes a file. Every change is the worker's to make.
 
-| Worker model | Advisor model | Herdr kind | Native arguments |
-|---|---|---|---|
-| GPT | `claude-fable-5-1` | `claude` | `--dangerously-skip-permissions --effort xhigh --model claude-fable-5-1` |
-| Anything else | `gpt-6-astra` | `codex` | `--yolo -c model_reasoning_effort=xhigh -m gpt-6-astra` |
+| Worker model | Advisor model | Herdr kind |
+|---|---|---|
+| GPT | `claude-fable-5-1` | `claude` |
+| Anything else | `gpt-6-astra` | `codex` |
+
+Native arguments for `claude`:
+
+```
+--permission-mode dontAsk --disallowedTools Edit,Write,NotebookEdit --allowedTools "Bash(herdr:*) Read Grep Glob WebSearch WebFetch" --effort xhigh --model claude-fable-5-1
+```
+
+Native arguments for `codex`, where `$HERDR_SOCKET_PATH` is exported in every
+Herdr pane:
+
+```
+-a never -c default_permissions="herdr-advisor" -c 'permissions.herdr-advisor.extends=":read-only"' -c 'permissions.herdr-advisor.network.enabled=true' -c "permissions.herdr-advisor.network.unix_sockets={\"$HERDR_SOCKET_PATH\"=\"allow\"}" --search -c model_reasoning_effort=xhigh -m gpt-6-astra
+```
+
+The two commands grant the same seven capabilities by different means. Keep
+them aligned: if you change one column, change its counterpart.
+
+| The advisor must | `claude` | `codex` |
+|---|---|---|
+| never ask | `--permission-mode dontAsk` | `-a never` |
+| never write | `--disallowedTools Edit,Write,NotebookEdit` | `extends=":read-only"` |
+| read files | `Read Grep Glob` | `extends=":read-only"` |
+| drive the worker | `Bash(herdr:*)` | `network.unix_sockets` allowing `$HERDR_SOCKET_PATH` |
+| reach the web | `WebSearch WebFetch` | `--search` |
+| think hard | `--effort xhigh` | `-c model_reasoning_effort=xhigh` |
+| pin the model | `--model claude-fable-5-1` | `-m gpt-6-astra` |
+
+The enforcement differs in strength, not in intent: Claude denies in its
+permission engine, Codex in a macOS seatbelt. So a Codex advisor cannot write
+even from inside a subprocess, while a Claude advisor is held by tool and
+command classification. Both are further bound by the read-only rule in their
+brief.
+
+**Neither advisor ever asks.** An advisor sits in a pane nobody is watching, so
+a permission prompt is a hang, not a safeguard. Both commands deny and carry on
+instead: `dontAsk` refuses anything not pre-approved rather than prompting, and
+`-a never` generates no approval request at all, returning a blocked action to
+the model as an error. Do not relax either to a prompting mode to let it ask.
+
+For `claude`, `dontAsk` auto-allows read-classified commands, so the allowlist
+only has to name the herdr surface the advisor drives the worker with, plus the
+web tools. Writes are denied twice over: `--disallowedTools` removes the editing
+tools, and `dontAsk` refuses write-classified Bash, so the advisor cannot route
+around the deny-list with `echo >`.
+
+For `codex`, the permissions profile is what makes read-only compatible with
+herdr. Do not add `--sandbox`/`-s read-only`: on its own it severs herdr's unix
+socket and strands the advisor, and passing it disables profile mode entirely.
+Do not add `--approve-for-me` either: [auto-review](https://learn.chatgpt.com/docs/sandboxing/auto-review)
+is "a reviewer swap, not a permission grant", and it never reviews "anything
+already permitted under the active `sandbox_mode`". `--search` gives web access
+server-side, so it survives the sandbox. Keep the socket path as an inline TOML
+table — the dotted-path form
+`-c '...unix_sockets."/path/herdr.sock"="allow"'` fails, because the parser
+splits on the dots inside the path.
 
 Reuse the worker's existing advisor after checking its identity, model family,
-workspace, tab, and working directory. Otherwise create a **vertical split**,
+workspace, tab, and working directory; if you cannot confirm it was launched
+read-only, restate the read-only rule in the first prompt you send it.
+Otherwise create a **vertical split**,
 with the advisor to the right of the worker in the **same Herdr tab** and cwd:
 
 ```bash
@@ -72,16 +137,19 @@ For a bounded consultation, wait until the advisor is `idle` or `done`, then use
 Start the brief with:
 
 > You are the leaf advisor for worker <worker-name-or-pane-id>. Answer directly
-> without delegating or consulting other agents. This is a bounded consultation;
-> reply with your advice and wait for a continuation handoff.
+> without delegating or consulting other agents. You are read-only: do not
+> create, edit, or delete files, and do not run commands that change the
+> repository or the working tree. This is a bounded consultation; reply with
+> your advice and wait for a continuation handoff.
 
 After setup and any initial consultation, hand off continuation with
 `herdr agent prompt "$advisor" "<handoff>"` **without `--wait`**. Include the worker's
 pane ID, goal, remaining context, and this instruction:
 
-> Read ~/.agents/skills/herdr-advisor/SKILL.md. You are the advisor for worker
-> <worker-name-or-pane-id>. Follow its next-task loop until the worker says there
-> is nothing left. Do not create or consult another advisor. The worker is doing
+> Read ~/.agents/skills/herdr-advisor/SKILL.md. You are the read-only advisor
+> for worker <worker-name-or-pane-id>. Follow its next-task loop until the worker
+> says there is nothing left. Do not create or consult another advisor, and hand
+> every change to the worker rather than making it yourself. The worker is doing
 > <goal>, with these constraints: <constraints>.
 
 The worker finishes its current turn without waiting for the continuation loop.

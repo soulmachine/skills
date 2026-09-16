@@ -221,3 +221,23 @@
 **Justification:** The continued requests specify the intended skill behavior and imply making that skill available. Creating a new directory is reversible and preserves the existing instructions. The canonical location and installation procedure come from ~/.agents/AGENTS.md, Skills management.
 **Outcome:** assumed
 **Ref:** herdr-advisor/SKILL.md
+
+## Q23 — herdr-advisor/read-only — gate-resolution
+
+**Question:** The advisor tool doc says the advisor model "runs without tools", so a Herdr advisor should never write. Codex enforces read-only with a macOS seatbelt, which severs herdr's unix socket — how should the Codex advisor be launched?
+**Options considered:** keep `--yolo` with the rule stated in the brief only / a `[permissions.herdr-advisor]` profile in `~/.codex/config.toml` on each host plus a short launch flag / the whole profile inline as `-c` flags
+**Chosen:** Inline `-c` flags: `-a never -c default_permissions="herdr-advisor"` plus `extends=":read-only"`, `network.enabled=true`, and `network.unix_sockets={"$HERDR_SOCKET_PATH"="allow"}`.
+**Decided-by:** user
+**Justification:** Measured on codex-cli 0.154.0: `codex sandbox -- herdr agent list` returns `PermissionDenied`, and the same call under a profile carrying the socket allowance returns the full listing while `touch` is refused and no file appears. Inline flags keep the skill self-contained — it is fleet-synced to seven hosts, and a profile living in per-host config would silently fall back to full access wherever the config is missing. Verified in a real session via `codex exec`: `-c default_permissions=` does select the profile.
+**Outcome:** applied
+**Ref:** herdr-advisor/SKILL.md
+
+## Q24 — herdr-advisor/read-only — gate-resolution
+
+**Question:** Both CLIs ship a "let a model judge the permission prompt" mode — Codex `--approve-for-me`, Claude `--permission-mode auto`. Use either to enforce the advisor's read-only rule?
+**Options considered:** Codex auto-review / Claude `auto` classifier / deny-by-default on both sides
+**Chosen:** Neither judge. Claude uses `--permission-mode dontAsk` with a deny-list and allowlist; Codex uses the read-only profile.
+**Decided-by:** user
+**Justification:** Auto-review is "a reviewer swap, not a permission grant" and never reviews "anything already permitted under the active `sandbox_mode`" — it selects workspace-write, where an in-repo edit is already permitted and so never reaches the reviewer. It also aborts the turn after 3 consecutive denials, which an advisor looping on herdr calls would hit. Claude's `auto` is the same shape: a judge, not a boundary. `dontAsk` was measured to deny `touch` and `echo >` outright while leaving `git status`, `herdr agent list`, and `herdr agent prompt`/`send-keys` working. Both choices also satisfy the harder constraint that neither advisor may ever block its unwatched pane on a prompt.
+**Outcome:** applied
+**Ref:** herdr-advisor/SKILL.md
