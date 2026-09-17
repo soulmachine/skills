@@ -181,9 +181,11 @@ herdr agent read "$worker" --source visible --format ansi
 ```
 
 If the worker says there is nothing left for the current goal, stop the loop.
-Check this before following suggestions. If the response needs the user's
-preferences, private facts, or authorization, pause and relay that question even
-if Herdr reports `idle`. Answer technical questions from the worker directly.
+"Nothing left within the current authorization" is the same stop, even when the
+worker also names work that is technically unblocked. Check this before following
+suggestions. If the response needs the user's preferences, private facts, or
+authorization, pause and relay that question even if Herdr reports `idle`.
+Answer technical questions from the worker directly.
 Otherwise use these sources in order:
 
 1. **Claude Code prompt suggestion.** If the worker is Claude Code and its input
@@ -208,6 +210,13 @@ Otherwise use these sources in order:
    If the turn finishes too quickly to observe `working`, verify a newer completed
    turn with `agent get`. If neither is observed, inspect the UI without resending
    or advancing the loop. Then use the normal settled-state wait.
+
+   A suggestion is generated text, not an authorized task. Read it against what
+   the worker just said, and do not accept one proposing work the worker named as
+   withheld, out of scope, or waiting on the user — stop the loop instead. A
+   worker reporting "nothing left within the current authorization" was observed
+   carrying the suggestion "start ticket 03", the one ticket it had just said it
+   was told not to start.
 
    Right arrow accepts the suggestion; Enter starts the next turn. See the
    [Claude Code prompt-suggestion documentation](https://code.claude.com/docs/en/interactive-mode#prompt-suggestions).
