@@ -5,6 +5,10 @@ description: Pair a Herdr worker with one advisor from another model family. Use
 
 # Herdr advisor
 
+Unrelated to Claude Code's built-in advisor tool (`--advisor`) — a server-side
+consultant with no tools of its own. This skill launches a separate agent
+process that drives the worker.
+
 Do not invoke this skill while a grilling session is still open — the `grilling`
 skill, or Matt Pocock's `grill-me`, `grill-with-docs`, or `batch-grill-me`, which
 all run it. Continue that session directly without creating, consulting, or
@@ -51,7 +55,7 @@ edits, or deletes a file. Every change is the worker's to make.
 
 | Worker model | Advisor model | Herdr kind |
 |---|---|---|
-| GPT | `claude-fable-5-1` | `claude` |
+| GPT | `claude-fable-5-1[1m]` | `claude` |
 | Anything else | `gpt-6-astra` | `codex` |
 
 **A quota outage overrides the table.** When the table's advisor model has hit
@@ -83,8 +87,18 @@ ones by an integer `priority`. Fall back to the table if neither is readable.
 Native arguments for `claude`:
 
 ```
---permission-mode dontAsk --disallowedTools Edit,Write,NotebookEdit --allowedTools "Bash(herdr:*) Read Grep Glob WebSearch WebFetch" --effort <effort> --model claude-fable-5-1
+--permission-mode dontAsk --disallowedTools Edit,Write,NotebookEdit --allowedTools "Bash(herdr:*) Read Grep Glob WebSearch WebFetch" --effort <effort> --model 'claude-fable-5-1[1m]' --strict-mcp-config
 ```
+
+`[1m]` must stay quoted — zsh globs the brackets — and pins the 1M-context
+variant; the bare id gets the 200k one, which `autoCompactWindow` cannot lift.
+The model catalog lists only the bare id, so the suffix's absence there is not
+evidence against it.
+
+`--strict-mcp-config` alone leaves the advisor with no MCP tools: 114 definitions
+it never called across a 59-call session. This is context economy, not a
+permission boundary — `--dangerously-skip-permissions` is prepended upstream, so
+the allowlist gates nothing. See `DECISIONS.md` Q33.
 
 Native arguments for `codex`, where `$HERDR_SOCKET_PATH` is exported in every
 Herdr pane:
@@ -93,7 +107,22 @@ Herdr pane:
 -a never -c default_permissions="herdr-advisor" -c 'permissions.herdr-advisor.extends=":read-only"' -c 'permissions.herdr-advisor.network.enabled=true' -c "permissions.herdr-advisor.network.unix_sockets={\"$HERDR_SOCKET_PATH\"=\"allow\"}" --search -c model_reasoning_effort=<effort> -m gpt-6-astra
 ```
 
-The two commands grant the same seven capabilities by different means. Keep
+Codex has no single flag for the MCP tool surface. Derive one `-c` per server
+**that host** declares, and append the result to the codex arguments above:
+
+```
+grep -oE '^\[mcp_servers\.[A-Za-z0-9_-]+\]$' ~/.codex/config.toml \
+  | sed 's/\[mcp_servers\.//; s/\]//; s/^/-c mcp_servers./; s/$/.enabled=false/' | tr '\n' ' '
+```
+
+Only servers declared in `[mcp_servers.*]` may be overridden. Naming any other —
+a plugin-injected server, or one this host lacks — aborts config loading with
+`invalid transport`, so never hardcode one machine's list. Plugin-injected
+servers therefore survive: codex floors at ~21 tools where claude reaches zero.
+`--disable plugins` would remove those too, but it also drops every plugin
+skill and hook — including claude-mem's capture — so it is not used here.
+
+The two commands grant the same eight capabilities by different means. Keep
 them aligned: if you change one column, change its counterpart.
 
 | The advisor must | `claude` | `codex` |
@@ -104,7 +133,8 @@ them aligned: if you change one column, change its counterpart.
 | drive the worker | `Bash(herdr:*)` | `network.unix_sockets` allowing `$HERDR_SOCKET_PATH` |
 | reach the web | `WebSearch WebFetch` | `--search` |
 | think hard | `--effort <effort>` | `-c model_reasoning_effort=<effort>` |
-| pin the model | `--model claude-fable-5-1` | `-m gpt-6-astra` |
+| pin the model | `--model 'claude-fable-5-1[1m]'` | `-m gpt-6-astra` |
+| carry no MCP tools | `--strict-mcp-config` | `-c mcp_servers.<n>.enabled=false` per declared server |
 
 The enforcement differs in strength, not in intent: Claude denies in its
 permission engine, Codex in a macOS seatbelt. So a Codex advisor cannot write
