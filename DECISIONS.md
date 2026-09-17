@@ -261,3 +261,13 @@
 **Justification:** Kept separate from the task-list source because the action differs in kind — the argument is dictated by the worker, not composed by the advisor — and sending "do 1, 2 and 3" to a worker waiting on "go" invites it to re-plan work it has already planned. Ranked below ghost text rather than above because source 1 already carries the turn-verification machinery and only applies to Claude Code workers with suggestions enabled, and in that overlap the suggestion is near-always the same continuation; reordering would be a larger claim than the reported need supports. Revisit if a ghost-text suggestion is observed diverging from an explicit invitation in the same response.
 **Outcome:** applied
 **Ref:** herdr-advisor/SKILL.md
+
+## Q27 — herdr-advisor/next-task-loop — gate-resolution
+
+**Question:** Worker evertranscript ended a turn reporting "nothing left within the current authorization" while its input box carried the ghost text "start ticket 03" — the one ticket it had just said the user told it not to start. Should the advisor accept such a suggestion and keep the loop running, or stop?
+**Options considered:** refuse the suggestion and stop the loop, treating the worker's "told me not to start it" as binding / accept it and continue, treating that as a scheduling preference rather than a blocker
+**Chosen:** Accept and continue. The stop is reserved for the case where every remaining item is a decision only the user can make.
+**Decided-by:** user
+**Justification:** The agent first shipped the opposite guard in e779e2a ("a suggestion is generated text, not an authorized task"), reasoning that Claude Code's suggestion engine had proposed explicitly withheld work. The user then directed that the loop should continue on suggestions of this shape, which reverses it; per the disagreement rule that reaffirmation settles it. The replacement draws the line at task versus decision — executable work is taken even if the worker was earlier told to hold off, while an adoption call, a threshold, or a preference is relayed to the user. Worth noting for a future reader: the investigation that produced e779e2a stands on its facts (ESC[2m dim ghost text, the worker's own wording), only the conclusion drawn from them was overridden.
+**Outcome:** applied
+**Ref:** herdr-advisor/SKILL.md
