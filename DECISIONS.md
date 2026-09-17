@@ -390,7 +390,7 @@ Known ceiling: a make-work worker can ping-pong — "nothing left" → probe →
 
 Reasons that left the skill and were recorded nowhere else: effort is the lever for a same-family advisor because a worker's model is unreadable (it passes no `--model`, and neither Herdr nor the pane reports one); the bare `claude-fable-5-1` id is the 200k-context variant, which `autoCompactWindow` cannot lift, so the quoted `[1m]` suffix is what buys the 1M window; `--search` survives the Codex sandbox because it is server-side; the Claude Code prompt-suggestion documentation is at code.claude.com/docs/en/interactive-mode#prompt-suggestions. Known ceiling, recorded not fixed: the watchdog finds an advisor only as exactly `<worker-name>-advisor` in the worker's tab, so a base shortened to fit the 32-character name limit goes unwatched, and so does the base invented for an unnamed worker, which the hook skips as `skipped-unnamed`.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 05403ee
 
 ## Q38 — herdr-advisor/one-direction — gate-resolution
 
@@ -402,7 +402,7 @@ Reasons that left the skill and were recorded nowhere else: effort is the lever 
 
 An investigation in the same session corrected a belief formed that night: a `prompt --wait` or `agent wait` timeout ends only the caller's wait and never interrupts the target (161 timeouts in the herdr server log since 2026-09-15, none near any interrupt marker, on herdr 0.9.1); the agent-sync interruption was a manual `esc` sent 7 minutes after the worker's timeout fired. The continuation prompts therefore keep `--wait --timeout 110000`, which they need for the five-second observed-working gate.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 05403ee
 **Supersedes:** Q34 — only its bounded-consultation exemption, now "a question the worker asked gets a full answer"; the verification budget stands.
 
 ## Q39 — herdr-advisor/irreversible-hold — gate-resolution
@@ -413,7 +413,7 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Decided-by:** human
 **Justification:** "Outward-facing" read literally catches every push, PR and comment, and the live workers push several times an hour, so that wording would hold the loop constantly, against Q27's purpose. The general rule retires the carve-out-plus-pause procedure, whose pause marker outlived its need by five hours.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 05403ee
 
 ## Q40 — herdr-advisor/bounded-assignment — gate-resolution
 
@@ -423,7 +423,7 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Decided-by:** human
 **Justification:** No state to leak: a pause marker outlives its pane, and a later pair reusing that pane ID would be silently unwatched, recreating the stall the watchdog exists to prevent. Review-only is the rare path, so one short advisor turn per worker turn is cheap. The hook changed by exactly two strings, this clause and the manual's path.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 05403ee
 
 ## Q41 — herdr-advisor/effort-default — gate-resolution
 
@@ -433,7 +433,7 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Decided-by:** human
 **Justification:** Restores the value both lines carried until 00:53 on 2026-09-17. Read literally, the unscoped rule gives a worker at `xhigh` a `max` advisor, the setting Q34's 26-minute audit ran at, in a loop where advisor time is worker idle time. Outranking exists to keep a same-family advisor from being a weaker copy; a cross-family advisor gets its independence from the family.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 05403ee
 
 ## Q42 — herdr-advisor/undefined-cases — gate-resolution
 
@@ -443,4 +443,4 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Decided-by:** agent
 **Justification:** Q32 already defines hold as the only non-spinning way to wait on a human, and the Stop hook resumes the advisor once the user has dealt with the dialog or submitted the draft. Cheapest to reverse: two words in `ADVISOR.md`. Also reworded, meaning unchanged: "an offer between alternatives is a decision" became "is a question: answer it, or hold if the choice is the user's", because "decision" is now a defined word meaning hold and the loose use would have turned every technical either/or into one. All three were flagged at the review gate, twice, and the user approved the drafts with them in view.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 05403ee
