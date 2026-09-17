@@ -64,7 +64,8 @@ check beats none. The tell is in the advisor's own pane — `You've hit your
 usage limit`, sometimes with the model silently downgraded from the one you
 asked for. Say so in that advisor's first prompt: it shares the worker's blind
 spots and will find its reasoning congenial, so have it verify the worker's
-claims against the code. Restore the table's pairing once the quota resets.
+claims against the code — the spot-check the next-task loop bounds, not an
+audit. Restore the table's pairing once the quota resets.
 
 **A same-family advisor must outrank its worker.** Rank on model first, effort
 second. The pin settles the model rung: the advisor models the table names are
@@ -239,6 +240,21 @@ herdr agent read "$worker" --source recent-unwrapped --lines 120
 herdr agent read "$worker" --source visible --format ansi
 ```
 
+Verification is a spot-check, not an audit. Read the journal and the worker's
+own report; do not re-derive its result from source, re-fetch what it already
+verified, or parse its session transcript. This bounds the loop's own reading;
+a bounded consultation the worker requested is answered in full, since the
+worker is waiting on it. When a doubt survives the spot-check,
+the doubt **is** the next task: send it to the worker to check, which is cheaper
+and is the worker's job anyway. Keep the wait above at its 60-second timeout — a
+longer one reports the advisor as `working` while it does nothing at all.
+
+The loop is serialized, so every minute you spend investigating is a minute the
+worker is idle. An advisor told to verify a same-family worker's claims was
+observed spending 26 minutes and 48 tool calls on a single turn — six source
+files, two artifact re-fetches, and three passes over the worker's 83 MB session
+transcript — without once prompting the worker, which sat idle for the last 11.
+
 If the worker says there is nothing left for the current goal, stop the loop.
 "Nothing left within the current authorization" is not that stop while the worker
 also names work that is technically unblocked — that work is the next task, so
@@ -269,8 +285,11 @@ in order:
    herdr agent read "$worker" --source visible --format ansi
    ```
 
-   Verify that the intended suggestion is now editable input rather than dim
-   ghost text, with no user draft added. Record the current worker turn, submit,
+   Dim ghost text before Right is this source's trigger, not grounds to
+   refuse it — an advisor was observed reading `^[[2m` on a suggestion,
+   correctly, and declining to accept it for that reason. The dimness check
+   belongs after Right: verify that the intended suggestion is now editable
+   input rather than dim ghost text, with no user draft added. Record the current worker turn, submit,
    and wait for evidence that the new turn started:
 
    ```bash
