@@ -54,17 +54,43 @@ edits, or deletes a file. Every change is the worker's to make.
 | GPT | `claude-fable-5-1` | `claude` |
 | Anything else | `gpt-6-astra` | `codex` |
 
+**A quota outage overrides the table.** When the table's advisor model has hit
+its usage limit, pair the worker with an advisor from its own family: a weaker
+check beats none. The tell is in the advisor's own pane — `You've hit your
+usage limit`, sometimes with the model silently downgraded from the one you
+asked for. Say so in that advisor's first prompt: it shares the worker's blind
+spots and will find its reasoning congenial, so have it verify the worker's
+claims against the code. Restore the table's pairing once the quota resets.
+
+**A same-family advisor must outrank its worker.** Rank on model first, effort
+second. The pin settles the model rung: the advisor models the table names are
+the most capable in their families, so a pinned advisor starts at least its
+worker's equal. That matters because a worker's model is unreadable — it passes
+no `--model`, and neither Herdr nor the pane reports one. Effort you read and
+set, because effort is readable where the model is not:
+`herdr pane process-info --pane <id>` shows the worker's `--effort`, and the
+worker's pane footer names the same value. Give the advisor one rung above the
+worker's and substitute it for `<effort>` below. The ladders differ by a rung —
+`claude` ends at `max`, `codex` continues to `ultra` — and a worker already at
+the top of its own ladder is the one case where the advisor matches rather than
+outranks it.
+
+When the table's models look stale, the vendors' own catalogs rank them: the
+newest `~/.claude/cache/model-catalog/*-cc.json` by `fetchedAt` lists the Claude
+models in capability order, and `~/.codex/models_cache.json` ranks the OpenAI
+ones by an integer `priority`. Fall back to the table if neither is readable.
+
 Native arguments for `claude`:
 
 ```
---permission-mode dontAsk --disallowedTools Edit,Write,NotebookEdit --allowedTools "Bash(herdr:*) Read Grep Glob WebSearch WebFetch" --effort xhigh --model claude-fable-5-1
+--permission-mode dontAsk --disallowedTools Edit,Write,NotebookEdit --allowedTools "Bash(herdr:*) Read Grep Glob WebSearch WebFetch" --effort <effort> --model claude-fable-5-1
 ```
 
 Native arguments for `codex`, where `$HERDR_SOCKET_PATH` is exported in every
 Herdr pane:
 
 ```
--a never -c default_permissions="herdr-advisor" -c 'permissions.herdr-advisor.extends=":read-only"' -c 'permissions.herdr-advisor.network.enabled=true' -c "permissions.herdr-advisor.network.unix_sockets={\"$HERDR_SOCKET_PATH\"=\"allow\"}" --search -c model_reasoning_effort=xhigh -m gpt-6-astra
+-a never -c default_permissions="herdr-advisor" -c 'permissions.herdr-advisor.extends=":read-only"' -c 'permissions.herdr-advisor.network.enabled=true' -c "permissions.herdr-advisor.network.unix_sockets={\"$HERDR_SOCKET_PATH\"=\"allow\"}" --search -c model_reasoning_effort=<effort> -m gpt-6-astra
 ```
 
 The two commands grant the same seven capabilities by different means. Keep
@@ -77,7 +103,7 @@ them aligned: if you change one column, change its counterpart.
 | read files | `Read Grep Glob` | `extends=":read-only"` |
 | drive the worker | `Bash(herdr:*)` | `network.unix_sockets` allowing `$HERDR_SOCKET_PATH` |
 | reach the web | `WebSearch WebFetch` | `--search` |
-| think hard | `--effort xhigh` | `-c model_reasoning_effort=xhigh` |
+| think hard | `--effort <effort>` | `-c model_reasoning_effort=<effort>` |
 | pin the model | `--model claude-fable-5-1` | `-m gpt-6-astra` |
 
 The enforcement differs in strength, not in intent: Claude denies in its
@@ -110,7 +136,10 @@ table — the dotted-path form
 splits on the dots inside the path.
 
 Reuse the worker's existing advisor after checking its identity, model family,
-workspace, tab, and working directory; if you cannot confirm it was launched
+workspace, tab, and working directory. Sharing the worker's family is not on
+its own grounds to replace it — judge it against the same-family rule above,
+reading its `--model` and `--effort` with `herdr pane process-info --pane <id>`,
+the only surface that shows them. If you cannot confirm it was launched
 read-only, restate the read-only rule in the first prompt you send it.
 Otherwise create a **vertical split**,
 with the advisor to the right of the worker in the **same Herdr tab** and cwd:

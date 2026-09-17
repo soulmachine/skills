@@ -281,3 +281,33 @@
 **Justification:** Seven-round grilling session. The user chose push over a subscriber ("push is better") and full autonomy over the bounded re-arm I recommended. Cost accepted: the hook runs on every Claude Code and Codex turn on the machine, so it is guarded to a cheap silent no-op outside a paired Herdr worker pane and never fails a turn. It does not violate `SKILL.md:166` — that forbids the worker *agent* waiting on the advisor mid-turn, whereas this fires after the turn has ended, so no mutual wait exists.
 **Outcome:** applied
 **Ref:** (pending)
+
+## Q29 — herdr-advisor/agent-sync-pair — deviation
+
+**Question:** `agent-sync`'s advisor was rebuilt as `claude-fable-5-1`, but the worker is itself a Claude agent — SKILL.md's model table pairs a non-GPT worker with a `gpt-6-astra` codex advisor precisely so the two differ in family.
+**Options considered:** keep the codex advisor / wait for quota / pair same-family on Claude
+**Chosen:** Same-family Claude pairing, accepted as a temporary deviation.
+**Decided-by:** human
+**Justification:** The codex advisor was not merely stalled — its pane showed "You've hit your usage limit ... try again at Sep 23rd, 2026 6:20 AM", so the gpt-6-astra option does not exist until then. The user specified the `claude-gw ... --model claude-fable-5-1` command directly. The cost is a weaker check: an advisor sharing the worker's family agrees with it more readily, so the pair is told this about itself in its brief.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q30 — herdr-advisor/agent-sync-pair — irreversible-action
+
+**Question:** The worker is offering step 3 — transferring `agentstow/agentstow` to `agent-sync-sh/agent-sync` — on the words "Say go and I'll start it." SKILL.md source 2 instructs the advisor to answer that literal invitation with `go`, which would fire an irreversible repo transfer that deliberately breaks nine OIDC trust entries.
+**Options considered:** hand off the standard autonomous loop / carve step 3 out of the brief / do not restart the loop at all
+**Chosen:** Restart the advisor as asked, but override source 2 for this pair: the brief forbids sending `go` for step 3 or step 5, and instructs the advisor to relay to the user and stop. Also paused the watchdog for this pair (`~/.config/herdr-advisor/paused.w8Q:p1`), because its generic re-arm nudge does not carry the carve-out and would let a re-armed advisor rediscover source 2 and send `go`.
+**Decided-by:** agent
+**Justification:** An irreversible, outward-facing transfer is the escalation floor — it is a decision only the user can make, not a task to be taken. Source 2 as written cannot tell an invitation to do reversible work from an invitation to do this; that gap is general and outlives this pair.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q31 — herdr-advisor/evertranscript-pair — deviation
+
+**Question:** Same question as Q29, now for the second pair: `evertranscript`'s Codex advisor also hit the usage limit (until Sep 23, 6:21 AM), and had silently degraded to `gpt-5.6-luna medium` rather than the `gpt-6-astra xhigh` SKILL.md specifies.
+**Options considered:** leave it stalled until Sep 23 / rebuild it as `claude-fable-5-1`
+**Chosen:** Rebuilt as `claude-fable-5-1` via `claude-gw`, same as Q29. Both live pairs are now same-family Claude.
+**Decided-by:** human
+**Justification:** Same quota outage as Q29; the user asked for the same treatment. Worth recording separately because it means the fleet currently has *no* cross-family advisor at all, so the independent-check property SKILL.md's model table exists to provide is absent everywhere until the quota resets. Each advisor's brief tells it this about itself.
+**Outcome:** applied
+**Ref:** (pending)
