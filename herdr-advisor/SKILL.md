@@ -234,7 +234,7 @@ Wait for the worker to finish its current turn. Read its latest response and
 current input box before selecting the next task:
 
 ```bash
-herdr agent wait "$worker" --timeout 60000
+herdr agent wait "$worker" --timeout 110000
 herdr agent get "$worker"
 herdr agent read "$worker" --source recent-unwrapped --lines 120
 herdr agent read "$worker" --source visible --format ansi
@@ -246,8 +246,10 @@ verified, or parse its session transcript. This bounds the loop's own reading;
 a bounded consultation the worker requested is answered in full, since the
 worker is waiting on it. When a doubt survives the spot-check,
 the doubt **is** the next task: send it to the worker to check, which is cheaper
-and is the worker's job anyway. Keep the wait above at its 60-second timeout — a
-longer one reports the advisor as `working` while it does nothing at all.
+and is the worker's job anyway. Keep the wait above at its 110-second timeout — a
+longer one reports the advisor as `working` while it does nothing at all, and
+this one still fits under the Bash tool's 120-second default and the 5-minute
+prompt-cache window, so a re-armed tick is cheap.
 
 The loop is serialized, so every minute you spend investigating is a minute the
 worker is idle. An advisor told to verify a same-family worker's claims was
@@ -322,7 +324,7 @@ in order:
    exact word and nothing else:
 
    ```bash
-   herdr agent prompt "$worker" "go" --wait --timeout 60000
+   herdr agent prompt "$worker" "go" --wait --timeout 110000
    ```
 
    The worker has already planned the work and is waiting on the trigger it
@@ -334,7 +336,7 @@ in order:
    remaining tasks, send a prompt selecting those tasks, for example:
 
    ```bash
-   herdr agent prompt "$worker" "do 1, 2 and 3" --wait --timeout 60000
+   herdr agent prompt "$worker" "do 1, 2 and 3" --wait --timeout 110000
    ```
 
    Use the actual task numbers from the latest response, or name the tasks if
@@ -344,7 +346,7 @@ in order:
 4. **Ask what remains.** If there is no invitation and no task list, send:
 
    ```bash
-   herdr agent prompt "$worker" "what's next" --wait --timeout 60000
+   herdr agent prompt "$worker" "what's next" --wait --timeout 110000
    ```
 
 After each submission, wait for that worker turn to finish and repeat. Keep asking
@@ -361,9 +363,12 @@ is nothing left.
 - After Right arrow and Enter, verify that a new turn started before treating an
   idle state as completion. `agent send-keys` confirms key delivery, not execution.
   Use `agent get` turn/state evidence and fresh output; do not blindly resend.
-- On a timeout or stalled prompt, inspect `agent get` and fresh output. If still
-  working, wait again without resubmitting. Use `--wait` without `--until idle`;
-  both `idle` and `done` are ready states.
+- On a timeout, run `agent get` only — a timed-out wait returns no state. If
+  still `working`, wait again without resubmitting or reading output: the read
+  block above costs about 5k tokens a tick, and an hour-long worker turn is 33
+  ticks. Read output when the state changes. On a stalled prompt, inspect
+  `agent get` and fresh output. Use `--wait` without `--until idle`; both `idle`
+  and `done` are ready states.
 - Names can expire. On `agent_not_running` or `agent_not_found`, rediscover the
   pair with `herdr agent list` before sending anything else.
 - If the latest response is truncated, follow the Herdr skill's output-recovery

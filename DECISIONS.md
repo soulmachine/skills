@@ -355,3 +355,14 @@ A second defect surfaced in the same advisor's next turn, and source 1 now guard
 Known ceiling: nothing enforces this. It is prose in the loop, like the hold rule Q32 added. The `Stop`-hook watchdog cannot rescue it either — it fires on the worker's turn end and pokes only when the advisor's loop is *gone*; here it fired at 02:35:51 PDT and correctly logged `skipped-advisor-busy`, because a loop stuck inside a turn is indistinguishable from a healthy one. Recovery stayed manual: `herdr agent send-keys <advisor> esc`.
 **Outcome:** applied
 **Ref:** 98ff90c
+
+## Q35 — herdr-advisor/wait-tick-cost — tradeoff
+
+**Question:** The next-task loop's `herdr agent wait` timeout is a ceiling, not a duration, so a long worker turn is a series of re-armed ticks. How long is a tick, and what does the advisor do on each timeout?
+**Options considered:** keep 60s and read output every tick (Q34) / raise to 10 minutes to cut tool calls / 110s with `agent get` only on timeout, output read only on a state change
+**Chosen:** `--timeout 110000` for the loop wait and the three continuation prompts; on timeout, `agent get` alone and re-arm. The 60s bounded-consultation wait is a different path and is unchanged.
+**Decided-by:** user
+**Justification:** The tick count was not the cost. A timed-out wait returns only `{"error":{"code":"timeout"}}` — no state — so the follow-up `agent get` is necessary and ~200 tokens; the "fresh output" the old wording also asked for is the ~5k-token read block, and an hour-long worker turn at 60s ticks spent ~300k tokens re-reading a pane that had not changed, which walks the advisor into the compaction Q32 names as what kills a hold. Dropping the read cuts that 25×. 10 minutes was rejected on three grounds: it exceeds the Bash tool's 120s default, so it only works if the advisor also passes a per-call `timeout`; it blows the 5-minute prompt-cache window, so every re-arm re-reads the context uncached; and the tick is the advisor's worst-case latency to a queued prompt — the 26-minute deafness of `agent-sync-advisor` on 2026-09-17 was exactly one long wait. 110s stays under both limits: 33 ticks/hour, cache warm, ~7k tokens/hour while idling.
+**Outcome:** applied
+**Ref:** (pending)
+**Supersedes:** Q34 — only its 60-second pin; the verification budget stands.
