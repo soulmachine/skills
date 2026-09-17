@@ -379,3 +379,68 @@ Known ceiling: a make-work worker can ping-pong — "nothing left" → probe →
 **Outcome:** applied
 **Ref:** 384749f
 **Supersedes:** Q27 — only its stop clause; accepting a suggestion that names withheld-but-unblocked work stands.
+
+## Q37 — herdr-advisor/simplification — tradeoff
+
+**Question:** `SKILL.md` had grown to 384 lines through a night of incident fixes, and three readers each loaded all of it: the worker, the advisor, and the re-armed advisor on every watchdog poke. How should it be shortened, and what may be lost?
+**Options considered:** compress in place / split by reader into two files / three files with the launch recipe disclosed too / move the flags into a launch script / hook-only wakeups, which would delete the tick and hold text
+**Chosen:** Two files split by reader: `SKILL.md` for the worker, whose invocation is what loads it, and a new `ADVISOR.md` for the advisor, named by the handoff and the watchdog nudge. Each rule keeps at most one clause of reason; incident narratives and measurements leave the skill because Q23–Q36 already hold them; statements made two to seven times collapse to one. The launch commands, the MCP snippet and the parity table stay byte-identical. Both files end with this journal's absolute path.
+**Decided-by:** human
+**Justification:** Grilling session. The user first gave `SKILL.md` to the advisor, then reversed it on the ground that the skill is always invoked by the worker; that also removed the need for a router and for an `AGENTS.md` edit. Hook-only wakeups were rejected for a lost-wakeup race: the hook skips a busy advisor, so a short worker turn ending while the advisor is still finishing its own would never be delivered, which is the silent stall that already cost hours twice. A launch script was deferred as new code needing verification on both kinds. A bare `DECISIONS.md` reference resolves against the worker's own repo, which keeps its own journal, so the footer is absolute. A 68-rule inventory and a check script (verbatim blocks byte-identical, every kept rule located) gated the rewrite, and the pair's own advisor spot-checked the drafts against the baseline, restoring three imperatives the compression had softened into descriptions (keep the 110-second timeout, never re-arm a wait to hold, never add `--until idle`). Result: 3216 words became 1304 for the worker and 1139 for the advisor, 24% fewer in total and 59–65% fewer per reader; the line budgets set in the session (150 and 100) were missed at 177 and 139 because every rule was kept.
+
+Reasons that left the skill and were recorded nowhere else: effort is the lever for a same-family advisor because a worker's model is unreadable (it passes no `--model`, and neither Herdr nor the pane reports one); the bare `claude-fable-5-1` id is the 200k-context variant, which `autoCompactWindow` cannot lift, so the quoted `[1m]` suffix is what buys the 1M window; `--search` survives the Codex sandbox because it is server-side; the Claude Code prompt-suggestion documentation is at code.claude.com/docs/en/interactive-mode#prompt-suggestions. Known ceiling, recorded not fixed: the watchdog finds an advisor only as exactly `<worker-name>-advisor` in the worker's tab, so a base shortened to fit the 32-character name limit goes unwatched, and so does the base invented for an unnamed worker, which the hook skips as `skipped-unnamed`.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q38 — herdr-advisor/one-direction — gate-resolution
+
+**Question:** The pair ran in two modes: a bounded consultation in which the worker blocks on the advisor, and continuation in which the advisor drives and the worker must not wait. Should the worker ever wait on the advisor?
+**Options considered:** keep both modes and tighten the text / one direction only
+**Chosen:** One direction. The worker never waits on the advisor: a consult is a turn-ending question that the advisor answers by prompting the worker, the first question rides in the handoff, and a review-only job is a handoff that declares a bounded assignment. The handoff names the spec by path or issue, and the advisor's spot-check compares the worker's report against that spec and the journal. The bounded-consultation path and its 60-second wait are deleted.
+**Decided-by:** human
+**Justification:** From outside the two modes are indistinguishable, which is how a healthy consult was mis-interrupted on 2026-09-17 and the corrective prompt deadlocked the agent-sync pair; Q34 had to carry an exemption clause for the same reason. One invariant replaces both modes and the rules that kept them apart, and it was already the rule whenever continuation was active. Cost: a consult now crosses a turn boundary. The usual flow (grill, spec, then this skill) has no pre-handoff consult at all, and a finished spec exists by the time the advisor launches, which is why the handoff points at it.
+
+An investigation in the same session corrected a belief formed that night: a `prompt --wait` or `agent wait` timeout ends only the caller's wait and never interrupts the target (161 timeouts in the herdr server log since 2026-09-15, none near any interrupt marker, on herdr 0.9.1); the agent-sync interruption was a manual `esc` sent 7 minutes after the worker's timeout fired. The continuation prompts therefore keep `--wait --timeout 110000`, which they need for the five-second observed-working gate.
+**Outcome:** applied
+**Ref:** (pending)
+**Supersedes:** Q34 — only its bounded-consultation exemption, now "a question the worker asked gets a full answer"; the verification budget stands.
+
+## Q39 — herdr-advisor/irreversible-hold — gate-resolution
+
+**Question:** Q30 recorded that the literal-invitation source cannot tell "Say go and I'll refactor" from "Say go and I'll transfer the repo", called the gap general, and patched it per pair with a brief carve-out plus a watchdog pause. Where does the general rule go, and where is its line?
+**Options considered:** leave per-pair carve-outs as the mechanism / hold on irreversible or outward-facing work / hold on irreversible work only
+**Chosen:** Irreversible only, inside the hold rule so that it covers all four sources: work the worker cannot undo with the access it has, namely publishing a version, transferring or deleting a remote repo or resource, sending a message, force-pushing over shared history, destroying untracked data, spending money. Ordinary pushes, commits, PRs and deleting tracked files are recoverable and are taken. In a mixed list the advisor sends the tasks and holds only the decision. The worker is told to flag such steps.
+**Decided-by:** human
+**Justification:** "Outward-facing" read literally catches every push, PR and comment, and the live workers push several times an hour, so that wording would hold the loop constantly, against Q27's purpose. The general rule retires the carve-out-plus-pause procedure, whose pause marker outlived its need by five hours.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q40 — herdr-advisor/bounded-assignment — gate-resolution
+
+**Question:** A review-only advisor finishes and goes idle, and the watchdog's generic nudge then tells it that its next-task loop is not running and to continue it. How is a bounded assignment kept bounded?
+**Options considered:** leave it and pause such pairs by hand / have the worker touch the pair's pause marker at handoff / one line in the advisor's manual plus a clause in the nudge
+**Chosen:** The manual says a re-arm nudge does not reopen a bounded assignment, so the advisor says it is complete and ends its turn, and the nudge gains "unless your assignment was bounded".
+**Decided-by:** human
+**Justification:** No state to leak: a pause marker outlives its pane, and a later pair reusing that pane ID would be silently unwatched, recreating the stall the watchdog exists to prevent. Review-only is the rare path, so one short advisor turn per worker turn is cheap. The hook changed by exactly two strings, this clause and the manual's path.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q41 — herdr-advisor/effort-default — gate-resolution
+
+**Question:** Commit d6d0b42 replaced the hardcoded `xhigh` in both launch lines with `<effort>` and defined it only in the same-family paragraph, leaving the normal cross-family pairing with no stated effort. What is it?
+**Options considered:** `xhigh` for cross-family and one rung above the worker only for same-family / one rung above the worker for every pairing
+**Chosen:** `xhigh` for a cross-family pair; one rung above the worker's only for a same-family pair.
+**Decided-by:** human
+**Justification:** Restores the value both lines carried until 00:53 on 2026-09-17. Read literally, the unscoped rule gives a worker at `xhigh` a `max` advisor, the setting Q34's 26-minute audit ran at, in a loop where advisor time is worker idle time. Outranking exists to keep a same-family advisor from being a weaker copy; a cross-family advisor gets its independence from the family.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q42 — herdr-advisor/undefined-cases — gate-resolution
+
+**Question:** The old text told the advisor to surface a blocked worker's dialog to the user, and to preserve a user-typed draft, but not what to do next. In both cases it cannot send input, and re-arming the wait would spin because the worker's state does not change. What follows?
+**Options considered:** leave both silent / name the hold primitive
+**Chosen:** Both end in a hold: the advisor names what it is waiting for and ends its turn.
+**Decided-by:** agent
+**Justification:** Q32 already defines hold as the only non-spinning way to wait on a human, and the Stop hook resumes the advisor once the user has dealt with the dialog or submitted the draft. Cheapest to reverse: two words in `ADVISOR.md`. Also reworded, meaning unchanged: "an offer between alternatives is a decision" became "is a question: answer it, or hold if the choice is the user's", because "decision" is now a defined word meaning hold and the loose use would have turned every technical either/or into one. All three were flagged at the review gate, twice, and the user approved the drafts with them in view.
+**Outcome:** applied
+**Ref:** (pending)

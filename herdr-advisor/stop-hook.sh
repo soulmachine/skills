@@ -43,7 +43,7 @@ LOG = pathlib.Path.home() / "Library" / "Logs" / "herdr-advisor.log"
 # Thrash signature: a healthy pair re-arms at most once per worker turn.
 BURST_N, BURST_WINDOW_S = 5, 600
 
-SKILL = "~/.agents/skills/herdr-advisor/SKILL.md"
+SKILL = "~/.agents/skills/herdr-advisor/ADVISOR.md"
 
 
 def log(action, **fields):
@@ -141,8 +141,9 @@ def main():
     nudge = (
         f"Re-read {SKILL} first, then resume. You are the read-only advisor for "
         f"worker {name} (pane {PANE}), which is now {status} at turn "
-        f"{me.get('turn')}. Your next-task loop is not running -- continue it, "
-        f"and keep it running across worker turns rather than ending your turn. "
+        f"{me.get('turn')}. Your next-task loop is not running -- unless your "
+        f"assignment was bounded, continue it, and keep it running across worker "
+        f"turns rather than ending your turn. "
         f"Relay to the user only what an agent cannot answer."
     )
 
