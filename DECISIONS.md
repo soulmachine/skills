@@ -271,3 +271,13 @@
 **Justification:** The agent first shipped the opposite guard in e779e2a ("a suggestion is generated text, not an authorized task"), reasoning that Claude Code's suggestion engine had proposed explicitly withheld work. The user then directed that the loop should continue on suggestions of this shape, which reverses it; per the disagreement rule that reaffirmation settles it. The replacement draws the line at task versus decision — executable work is taken even if the worker was earlier told to hold off, while an adoption call, a threshold, or a preference is relayed to the user. Worth noting for a future reader: the investigation that produced e779e2a stands on its facts (ESC[2m dim ghost text, the worker's own wording), only the conclusion drawn from them was overridden.
 **Outcome:** applied
 **Ref:** herdr-advisor/SKILL.md
+
+## Q28 — herdr-advisor/watchdog — tradeoff
+
+**Question:** How should an advisor whose next-task loop has ended be restarted, given `herdr agent wait` exists only inside an advisor turn — so once that turn ends, nothing watches the worker and no event can restart it?
+**Options considered:** a third-party socket subscriber on `events.subscribe` / an openroutine polling task / a worker-side `Stop` hook that pushes to the advisor
+**Chosen:** Worker-side `Stop` hook (`herdr-advisor/stop-hook.sh`, registered through `~/.agents/hooks/Stop.toml` so agentstow renders it into both Claude and Codex). It pokes the paired advisor only when that advisor is `idle` or `done`. Full autonomy — unbounded re-arm — with a burst notification at 5 pokes per 10 minutes and kill switches at global and per-pair scope.
+**Decided-by:** human
+**Justification:** Seven-round grilling session. The user chose push over a subscriber ("push is better") and full autonomy over the bounded re-arm I recommended. Cost accepted: the hook runs on every Claude Code and Codex turn on the machine, so it is guarded to a cheap silent no-op outside a paired Herdr worker pane and never fails a turn. It does not violate `SKILL.md:166` — that forbids the worker *agent* waiting on the advisor mid-turn, whereas this fires after the turn has ended, so no mutual wait exists.
+**Outcome:** applied
+**Ref:** (pending)
