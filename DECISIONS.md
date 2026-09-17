@@ -364,5 +364,18 @@ Known ceiling: nothing enforces this. It is prose in the loop, like the hold rul
 **Decided-by:** user
 **Justification:** The tick count was not the cost. A timed-out wait returns only `{"error":{"code":"timeout"}}` — no state — so the follow-up `agent get` is necessary and ~200 tokens; the "fresh output" the old wording also asked for is the ~5k-token read block, and an hour-long worker turn at 60s ticks spent ~300k tokens re-reading a pane that had not changed, which walks the advisor into the compaction Q32 names as what kills a hold. Dropping the read cuts that 25×. 10 minutes was rejected on three grounds: it exceeds the Bash tool's 120s default, so it only works if the advisor also passes a per-call `timeout`; it blows the 5-minute prompt-cache window, so every re-arm re-reads the context uncached; and the tick is the advisor's worst-case latency to a queued prompt — the 26-minute deafness of `agent-sync-advisor` on 2026-09-17 was exactly one long wait. 110s stays under both limits: 33 ticks/hour, cache warm, ~7k tokens/hour while idling.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 53add85
 **Supersedes:** Q34 — only its 60-second pin; the verification budget stands.
+
+## Q36 — herdr-advisor/stop-condition — gate-resolution
+
+**Question:** The next-task loop stopped on the worker's first "nothing left". Should one report end the loop, or should the advisor probe once before believing it?
+**Options considered:** stop on the first "nothing left" (Q27) / send a bare `what's next` once and stop only on a second consecutive "nothing left" / probe N times or with a leading "check for follow-ups, tests, docs" prompt / cap probe→task→probe cycles
+**Chosen:** A flat "nothing left" — no named task, no decision for the user — triggers one literal `what's next`; a second consecutive flat "nothing left" is the stop, and the advisor's last message quotes both answers. Any turn in which the advisor sent work, from any source, resets the count. The probe fires only on the flat shape: a report that names an unblocked item already has its next task (Q27), and one that turns on a user decision is a hold. "Every remaining item is a decision only the user can make" moves from stop to hold, so stop now means only "goal complete, nothing to wait for" and hold means "waiting on a human".
+**Decided-by:** user
+**Justification:** Grilling session, all recommendations accepted. Source 4 already sends `what's next` when a turn ends without an invitation or task list, so the loop was asymmetric: it probed vagueness but not completion, and a worker's first "done" is the least-considered answer it gives. Two identical answers to the same bare question is the evidence the stop rests on; that is why the probe stays literal — a leading prompt invites the worker to manufacture work, which is what the stop exists to avoid — and why it fires once, since a third probe adds cost and no information. No re-poke loop follows the stop: the worker's final turn fires the Stop hook while the advisor is still in its `--wait` (`skipped-advisor-busy`), and the advisor's own turn end self-hunts `…-advisor-advisor`.
+
+Known ceiling: a make-work worker can ping-pong — "nothing left" → probe → trivial task → "nothing left" → probe — and every taken task resets the count, so it never stops. No cap on cycles, for the reason Q34 gave against counters: it invites gaming the count rather than the behaviour. The bare wording is the guard.
+**Outcome:** applied
+**Ref:** (pending)
+**Supersedes:** Q27 — only its stop clause; accepting a suggestion that names withheld-but-unblocked work stands.

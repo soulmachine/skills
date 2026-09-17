@@ -257,13 +257,21 @@ observed spending 26 minutes and 48 tool calls on a single turn — six source
 files, two artifact re-fetches, and three passes over the worker's 83 MB session
 transcript — without once prompting the worker, which sat idle for the last 11.
 
-If the worker says there is nothing left for the current goal, stop the loop.
+A flat "nothing left" — no named task, no decision for the user — is not yet
+the stop. Send the literal `what's next` from source 4, once. If that turn also
+ends in a flat "nothing left", stop the loop, quoting both answers in your last
+message so the pane reader can see the goal was probed rather than abandoned.
+Any turn in which you sent the worker work, from any source, resets the count.
+Keep the probe bare: a leading prompt invites the worker to invent work to
+satisfy it, and two identical answers to the same bare question are the
+evidence the stop rests on.
+
 "Nothing left within the current authorization" is not that stop while the worker
 also names work that is technically unblocked — that work is the next task, so
-take it. Stop when every remaining item is a decision only the user can make.
-Check this before following suggestions. If the response needs the user's
-preferences, private facts, or authorization, **hold**: relay that question and
-end your turn, even if Herdr reports `idle`.
+take it. Check this before following suggestions. If the response needs the
+user's preferences, private facts, or authorization, or every remaining item is
+a decision only the user can make, **hold**: relay that question and end your
+turn, even if Herdr reports `idle`.
 
 Holding means ending the turn, not staying alive inside it. Do not re-arm
 `herdr agent wait` to keep a hold open. The worker is idle, and only a human
@@ -351,7 +359,7 @@ in order:
 
 After each submission, wait for that worker turn to finish and repeat. Keep asking
 what remains when none of the earlier sources applies, until the worker says there
-is nothing left.
+is nothing left twice in a row.
 
 ## Input and wait handling
 
