@@ -138,10 +138,13 @@ def main():
             advisor_pane=apane, advisor_status=status)
         return
 
+    # Say only what a Stop hook knows by construction: the worker just ended a
+    # turn. Its Herdr record lags at this moment (`turn` was seen one behind),
+    # so quoting its status or turn here would misreport it.
     nudge = (
         f"Re-read {SKILL} first, then resume. You are the read-only advisor for "
-        f"worker {name} (pane {PANE}), which is now {status} at turn "
-        f"{me.get('turn')}. Your next-task loop is not running -- unless your "
+        f"worker {name} (pane {PANE}), which has just ended a turn. "
+        f"Your next-task loop is not running -- unless your "
         f"assignment was bounded, continue it, and keep it running across worker "
         f"turns rather than ending your turn. "
         f"Relay to the user only what an agent cannot answer."

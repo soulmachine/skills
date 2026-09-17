@@ -49,11 +49,6 @@ set to `xhigh`:
 | GPT | `claude-fable-5-1[1m]` | `claude` |
 | Anything else | `gpt-6-astra` | `codex` |
 
-When the table looks stale, the vendors' catalogs rank the models: the newest
-`~/.claude/cache/model-catalog/*-cc.json` by `fetchedAt` lists the Claude models
-in capability order, and `~/.codex/models_cache.json` ranks the OpenAI ones by
-an integer `priority`. If neither is readable, trust the table.
-
 **A quota outage overrides the table.** When the table's model has hit its
 usage limit, pair with an advisor from your own family: a weaker check beats
 none. The tell is in the advisor's pane: `You've hit your usage limit`,
@@ -75,8 +70,9 @@ Native arguments for `claude`:
 ```
 
 Keep `'claude-fable-5-1[1m]'` quoted, because zsh globs the brackets, and keep
-the suffix: the bare id is the 200k-context variant. The model catalog lists
-only the bare id, so the suffix's absence there is not evidence against it.
+the suffix: the bare id is the 200k-context variant. Claude Code's model
+catalog lists only the bare id, so the suffix's absence there is not evidence
+against it.
 
 Native arguments for `codex`, where `$HERDR_SOCKET_PATH` is exported in every
 Herdr pane:

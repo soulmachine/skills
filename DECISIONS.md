@@ -444,3 +444,23 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** Q32 already defines hold as the only non-spinning way to wait on a human, and the Stop hook resumes the advisor once the user has dealt with the dialog or submitted the draft. Cheapest to reverse: two words in `ADVISOR.md`. Also reworded, meaning unchanged: "an offer between alternatives is a decision" became "is a question: answer it, or hold if the choice is the user's", because "decision" is now a defined word meaning hold and the loose use would have turned every technical either/or into one. All three were flagged at the review gate, twice, and the user approved the drafts with them in view.
 **Outcome:** applied
 **Ref:** 05403ee
+
+## Q43 — herdr-advisor/catalog-paragraph — tradeoff
+
+**Question:** Q37 kept the paragraph telling a worker how to re-rank the models when the pairing table looks stale, and the rollout report offered it as an optional cut of about 45 words. Keep it or drop it?
+**Options considered:** keep it / drop it and record its facts here
+**Chosen:** Dropped from `SKILL.md`. With it gone, the sentence defending the `[1m]` suffix lost its antecedent, so "The model catalog" became "Claude Code's model catalog"; nothing else changed.
+**Decided-by:** human
+**Justification:** The user picked both optional follow-ups listed in the rollout report, relayed by the pair's advisor and confirmed on its screen. Cost: a worker facing a stale table has no in-skill way to re-rank the models and will trust the table. The procedure that left the skill: the vendors' catalogs rank the models; the newest `~/.claude/cache/model-catalog/*-cc.json` by its `fetchedAt` field lists the Claude models in capability order, `~/.codex/models_cache.json` ranks the OpenAI ones by an integer `priority`, and if neither is readable the table stands. `SKILL.md` is now 173 lines and 1265 words.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q44 — herdr-advisor/nudge-worker-state — deviation
+
+**Question:** The watchdog's nudge said "worker X (pane P), which is now {status} at turn {turn}", but `status` was the advisor's own `agent_status`, printed as though it described the worker. What should the sentence say?
+**Options considered:** swap in the worker's `agent_status` / say what a Stop hook knows by construction and quote neither status nor turn
+**Chosen:** "worker X (pane P), which has just ended a turn." The status and the turn number both leave the nudge. This is a third string change to the hook, beyond the two Q40 records; the `ADVISOR.md` pointer, the bounded-assignment clause, the gates and the log fields are untouched.
+**Decided-by:** human
+**Justification:** The user asked for the fix and reviewed the diff; the wording is the agent's, on evidence gathered at the advisor's suggestion. The hook runs while the worker's turn is still ending, so the worker's Herdr record lags: mid-turn, `agent get` reports `working` with `turn` equal to the last completed turn, and the one delivered nudge that could be paired with the advisor's next `agent get` (evertranscript, 2026-09-17) claimed turn 140 while that read showed `done` at turn 141. Swapping in the worker's status would therefore have told the advisor that the worker was still `working`. The advisor re-reads the worker's state at the top of its loop anyway, so the nudge loses nothing. The log's `worker_turn` field has the same one-turn lag and was left as is, being diagnostics only. A self-test (shell syntax, the silent no-op outside Herdr, the body compiles, `main()` against a fake agent list) passes on the new hook and fails on the old sentence.
+**Outcome:** applied
+**Ref:** (pending)
