@@ -377,5 +377,5 @@ Known ceiling: nothing enforces this. It is prose in the loop, like the hold rul
 
 Known ceiling: a make-work worker can ping-pong — "nothing left" → probe → trivial task → "nothing left" → probe — and every taken task resets the count, so it never stops. No cap on cycles, for the reason Q34 gave against counters: it invites gaming the count rather than the behaviour. The bare wording is the guard.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 384749f
 **Supersedes:** Q27 — only its stop clause; accepting a suggestion that names withheld-but-unblocked work stands.
