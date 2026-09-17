@@ -453,7 +453,7 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Decided-by:** human
 **Justification:** The user picked both optional follow-ups listed in the rollout report, relayed by the pair's advisor and confirmed on its screen. Cost: a worker facing a stale table has no in-skill way to re-rank the models and will trust the table. The procedure that left the skill: the vendors' catalogs rank the models; the newest `~/.claude/cache/model-catalog/*-cc.json` by its `fetchedAt` field lists the Claude models in capability order, `~/.codex/models_cache.json` ranks the OpenAI ones by an integer `priority`, and if neither is readable the table stands. `SKILL.md` is now 173 lines and 1265 words.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 6a00075
 
 ## Q44 — herdr-advisor/nudge-worker-state — deviation
 
@@ -463,4 +463,4 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Decided-by:** human
 **Justification:** The user asked for the fix and reviewed the diff; the wording is the agent's, on evidence gathered at the advisor's suggestion. The hook runs while the worker's turn is still ending, so the worker's Herdr record lags: mid-turn, `agent get` reports `working` with `turn` equal to the last completed turn, and the one delivered nudge that could be paired with the advisor's next `agent get` (evertranscript, 2026-09-17) claimed turn 140 while that read showed `done` at turn 141. Swapping in the worker's status would therefore have told the advisor that the worker was still `working`. The advisor re-reads the worker's state at the top of its loop anyway, so the nudge loses nothing. The log's `worker_turn` field has the same one-turn lag and was left as is, being diagnostics only. A self-test (shell syntax, the silent no-op outside Herdr, the body compiles, `main()` against a fake agent list) passes on the new hook and fails on the old sentence.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 6a00075
