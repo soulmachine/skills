@@ -311,3 +311,13 @@
 **Justification:** Same quota outage as Q29; the user asked for the same treatment. Worth recording separately because it means the fleet currently has *no* cross-family advisor at all, so the independent-check property SKILL.md's model table exists to provide is absent everywhere until the quota resets. Each advisor's brief tells it this about itself.
 **Outcome:** applied
 **Ref:** (pending)
+
+## Q32 — herdr-advisor/hold-primitive — gate-resolution
+
+**Question:** SKILL.md told the advisor to "pause and relay" without defining what pausing is, leaving only loop-or-stop as real options. How should a hold be performed?
+**Options considered:** end the turn / hold open inside the turn on a resolvable `herdr agent wait` condition / a bounded sleep-and-recheck
+**Chosen:** End the turn, and say so explicitly — plus a named prohibition on re-arming `herdr agent wait` to stay alive.
+**Decided-by:** agent
+**Justification:** Observed failure, not theory: `agent-sync-advisor` improvised a hold as `herdr agent wait agent-sync --until working --timeout 590000`, re-armed it for over an hour, and reached 2% from auto-compact without advancing past turn 5. No wait condition fixes this — an idle worker only becomes `working` when a human prompts it, so any wait on worker activity resolves only after the awaited event has already happened, while the spin spends the context that would have let the advisor act on it. An ended turn costs nothing while it waits. The `Stop` hook is named as what resumes it, hedged with "where one is installed" because the watchdog is undocumented in this skill, is deployed on one host, and is paused for the pair that produced this bug.
+**Outcome:** applied
+**Ref:** (pending)

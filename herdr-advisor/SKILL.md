@@ -214,9 +214,21 @@ If the worker says there is nothing left for the current goal, stop the loop.
 also names work that is technically unblocked — that work is the next task, so
 take it. Stop when every remaining item is a decision only the user can make.
 Check this before following suggestions. If the response needs the user's
-preferences, private facts, or authorization, pause and relay that question even
-if Herdr reports `idle`. Answer technical questions from the worker directly.
-Otherwise use these sources in order:
+preferences, private facts, or authorization, **hold**: relay that question and
+end your turn, even if Herdr reports `idle`.
+
+Holding means ending the turn, not staying alive inside it. Do not re-arm
+`herdr agent wait` to keep a hold open. The worker is idle, and only a human
+prompt turns it `working`, so a wait on worker activity cannot resolve until the
+thing you are waiting for has already happened; each re-arm spends context until
+you compact and the hold dies anyway. An ended turn waits for free. What resumes
+you is the worker's next turn, which a `Stop` hook re-arms the advisor on where
+one is installed, or the user prompting you directly. Name what you are holding
+for in your last message, so whoever reads the pane can see what would unblock
+it.
+
+Answer technical questions from the worker directly. Otherwise use these sources
+in order:
 
 1. **Claude Code prompt suggestion.** If the worker is Claude Code and its input
    box is otherwise empty and shows grayed-out next-prompt ghost text, send Right
