@@ -354,4 +354,4 @@ A second defect surfaced in the same advisor's next turn, and source 1 now guard
 
 Known ceiling: nothing enforces this. It is prose in the loop, like the hold rule Q32 added. The `Stop`-hook watchdog cannot rescue it either — it fires on the worker's turn end and pokes only when the advisor's loop is *gone*; here it fired at 02:35:51 PDT and correctly logged `skipped-advisor-busy`, because a loop stuck inside a turn is indistinguishable from a healthy one. Recovery stayed manual: `herdr agent send-keys <advisor> esc`.
 **Outcome:** applied
-**Ref:** (pending)
+**Ref:** 98ff90c
