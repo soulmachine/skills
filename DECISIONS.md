@@ -251,3 +251,13 @@
 **Justification:** The user reported agent `agent-sync` blocked after its grill ended with "Frontier is empty" and settled that the skill should be usable there. "Frontier is empty" is not an ad-hoc marker: all four grill skills carry the identical sentence "The session is done when the frontier is empty", so the exclusion now borrows that skill's own completion condition rather than inventing one. The enumeration widening is the agent's call and worth confirming: `grill-me` and `grill-with-docs` are one-line shims that call `grilling`, so an agent mid-session is running `grilling` — which the old text never named — while `batch-grill-me` inlines the same procedure and was missing outright.
 **Outcome:** applied
 **Ref:** herdr-advisor/SKILL.md
+
+## Q26 — herdr-advisor/next-task-loop — tradeoff
+
+**Question:** A worker often ends a turn inviting continuation on a literal word ("Say go and I'll refactor the parser"). Where does handling that belong among the loop's ordered sources, and what should the advisor send?
+**Options considered:** send the exact trigger word as a new source ranked first, above the Claude Code ghost-text suggestion / rank it second, below the ghost text / fold it into the existing "next tasks in the response" source and let the advisor compose its own prompt
+**Chosen:** A new source ranked second: send the exact word the worker named, nothing else. Ghost text keeps first place.
+**Decided-by:** agent
+**Justification:** Kept separate from the task-list source because the action differs in kind — the argument is dictated by the worker, not composed by the advisor — and sending "do 1, 2 and 3" to a worker waiting on "go" invites it to re-plan work it has already planned. Ranked below ghost text rather than above because source 1 already carries the turn-verification machinery and only applies to Claude Code workers with suggestions enabled, and in that overlap the suggestion is near-always the same continuation; reordering would be a larger claim than the reported need supports. Revisit if a ghost-text suggestion is observed diverging from an explicit invitation in the same response.
+**Outcome:** applied
+**Ref:** herdr-advisor/SKILL.md

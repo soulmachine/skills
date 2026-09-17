@@ -213,7 +213,20 @@ Otherwise use these sources in order:
    [Claude Code prompt-suggestion documentation](https://code.claude.com/docs/en/interactive-mode#prompt-suggestions).
    If suggestions are absent or disabled, continue to the next source.
 
-2. **Next tasks in the response.** If there is no suggestion and the worker lists
+2. **Explicit invitation to continue.** If the worker offers to proceed on a
+   literal word — "Say go and I'll ...", "Say the word and I'll ..." — send that
+   exact word and nothing else:
+
+   ```bash
+   herdr agent prompt "$worker" "go" --wait --timeout 60000
+   ```
+
+   The worker has already planned the work and is waiting on the trigger it
+   named. Restating the task invites it to re-plan instead, and a paraphrase may
+   not read as the trigger at all. An offer between alternatives is a decision,
+   not an invitation: do not answer that with a trigger word.
+
+3. **Next tasks in the response.** If there is no invitation and the worker lists
    remaining tasks, send a prompt selecting those tasks, for example:
 
    ```bash
@@ -224,15 +237,15 @@ Otherwise use these sources in order:
    they are not numbered. Select tasks that can be done together, not mutually
    exclusive alternatives presented for a decision.
 
-3. **Ask what remains.** If there is no suggestion and no task list, send:
+4. **Ask what remains.** If there is no invitation and no task list, send:
 
    ```bash
    herdr agent prompt "$worker" "what's next" --wait --timeout 60000
    ```
 
 After each submission, wait for that worker turn to finish and repeat. Keep asking
-what remains when neither of the first two sources is available, until the worker
-says there is nothing left.
+what remains when none of the earlier sources applies, until the worker says there
+is nothing left.
 
 ## Input and wait handling
 
@@ -250,4 +263,5 @@ says there is nothing left.
 - Names can expire. On `agent_not_running` or `agent_not_found`, rediscover the
   pair with `herdr agent list` before sending anything else.
 - If the latest response is truncated, follow the Herdr skill's output-recovery
-  procedure before deciding that no task list or completion statement exists.
+  procedure before deciding that no invitation, task list, or completion statement
+  exists.
