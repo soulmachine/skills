@@ -241,3 +241,13 @@
 **Justification:** Auto-review is "a reviewer swap, not a permission grant" and never reviews "anything already permitted under the active `sandbox_mode`" — it selects workspace-write, where an in-repo edit is already permitted and so never reaches the reviewer. It also aborts the turn after 3 consecutive denials, which an advisor looping on herdr calls would hit. Claude's `auto` is the same shape: a judge, not a boundary. `dontAsk` was measured to deny `touch` and `echo >` outright while leaving `git status`, `herdr agent list`, and `herdr agent prompt`/`send-keys` working. Both choices also satisfy the harder constraint that neither advisor may ever block its unwatched pane on a prompt.
 **Outcome:** applied
 **Ref:** herdr-advisor/SKILL.md
+
+## Q25 — herdr-advisor/grilling-exclusion — gate-resolution
+
+**Question:** The skill's grilling exclusion said "do not invoke during a Matt Pocock `grill-me` or `grill-with-docs` session" with no end condition, so a worker whose grill had already finished read itself as permanently barred. When does the exclusion lift, and which entry points does it cover?
+**Options considered:** leave it unbounded and let the worker judge / bound it with the grilling skill's own completion condition / bound it and also name every grill entry point
+**Chosen:** Bound it: the exclusion holds while a grilling session is open and lifts once its frontier is empty. Widened the enumeration from two entry points to four — `grilling` itself plus `grill-me`, `grill-with-docs`, and `batch-grill-me`.
+**Decided-by:** human
+**Justification:** The user reported agent `agent-sync` blocked after its grill ended with "Frontier is empty" and settled that the skill should be usable there. "Frontier is empty" is not an ad-hoc marker: all four grill skills carry the identical sentence "The session is done when the frontier is empty", so the exclusion now borrows that skill's own completion condition rather than inventing one. The enumeration widening is the agent's call and worth confirming: `grill-me` and `grill-with-docs` are one-line shims that call `grilling`, so an agent mid-session is running `grilling` — which the old text never named — while `batch-grill-me` inlines the same procedure and was missing outright.
+**Outcome:** applied
+**Ref:** herdr-advisor/SKILL.md

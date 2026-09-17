@@ -1,13 +1,19 @@
 ---
 name: herdr-advisor
-description: Pair a Herdr worker with one advisor from another model family. Use when the Advisor Model rule applies or the user asks for a Herdr advisor to review decisions and lead the worker through its remaining tasks. Do not invoke during Matt Pocock's grill-me or grill-with-docs sessions.
+description: Pair a Herdr worker with one advisor from another model family. Use when the Advisor Model rule applies or the user asks for a Herdr advisor to review decisions and lead the worker through its remaining tasks. Do not invoke while a grilling session is still open.
 ---
 
 # Herdr advisor
 
-Do not invoke this skill during a Matt Pocock `grill-me` or `grill-with-docs`
-session, even when the Advisor Model rule would otherwise apply. Continue that
-session directly without creating, consulting, or handing off to an advisor.
+Do not invoke this skill while a grilling session is still open — the `grilling`
+skill, or Matt Pocock's `grill-me`, `grill-with-docs`, or `batch-grill-me`, which
+all run it. Continue that session directly without creating, consulting, or
+handing off to an advisor, even when the Advisor Model rule would otherwise apply.
+
+A grilling session ends when its frontier is empty, which is that skill's own
+completion condition. Once it does, this exclusion no longer applies: carrying
+out the agreed plan is ordinary work, and the Advisor Model rule governs it
+normally.
 
 ## Roles and scope
 
