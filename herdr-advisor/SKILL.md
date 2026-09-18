@@ -76,7 +76,7 @@ opens no new tab or workspace, and leaves the user's focus where it is:
 
 ```bash
 herdr pane split --current --direction right --cwd "$PWD" --no-focus   # → .result.pane.pane_id
-herdr pane run <pane-id> "sh ~/.agents/skills/herdr-advisor/watchdog.sh <pane-id> &"
+herdr pane run <pane-id> "python3 ~/.agents/skills/herdr-advisor/watchdog.py <pane-id> &"
 sleep 3
 herdr agent start <advisor-name> --kind <kind> --pane <pane-id> -- <native arguments>
 ```

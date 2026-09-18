@@ -18,8 +18,8 @@ column names that rung, `id` when the CLI bakes effort into the model id
 `none` when it has no knob. `<provider>` is the CLI's own name for the
 model's provider; both spellings are in the closing *Model spellings*
 paragraph. `†` marks a row not yet launched from this skill (copilot: no
-working login on the reference host); `‡` a top rung the CLI's docs do not
-state.
+working login on the reference host); the launch is `harness/launch-test.sh`,
+one live row per run. `‡` marks a top rung the CLI's docs do not state.
 
 The launch recipe is in `SKILL.md`; a row supplies its `<kind>` and `<native
 arguments>`.

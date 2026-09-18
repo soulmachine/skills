@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Offline self-test of watchdog.sh: no Herdr, a fake `herdr` on PATH.
+"""Offline self-test of watchdog.py: no Herdr, a fake `herdr` on PATH.
 
 The fake answers `agent get` from a state file and records every other call,
 so each scenario sets a state, runs the watchdog until it exits or has made
 one pass, and checks what it sent.
 
-Run: python3 watchdog_selftest.py [path/to/watchdog.sh]
+Run: python3 watchdog_selftest.py [path/to/watchdog.py]
 """
 import json, os, pathlib, subprocess, sys, tempfile, time
 
-WD = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "watchdog.sh").resolve()
+WD = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "watchdog.py").resolve()
 HOME = pathlib.Path(tempfile.mkdtemp())
 LOG = HOME / "Library" / "Logs" / "herdr-advisor.log"
 STATE, CALLS = HOME / "state", HOME / "calls"
@@ -34,11 +34,11 @@ def run(name, status, turn, grace=0, seconds=3):
     STATE.write_text(json.dumps({"result": {"agent": {"name": name, "agent_status": status, "turn": turn}}}))
     CALLS.write_text("")
     src = WD.read_text()
-    for marker in ("GRACE_S=10", "START_S=300"):   # retuned by text: a rename must fail here, not run at production timings
-        assert marker in src, f"{marker} not found in {WD}"
-    script = src.replace("GRACE_S=10", f"GRACE_S={grace}").replace("START_S=300", "START_S=2")
-    (HOME / "wd.sh").write_text(script)
-    p = subprocess.Popen(["sh", str(HOME / "wd.sh"), "t:p1"], env=ENV,
+    marker = "MAX_BLOCKS, WINDOW_S, GRACE_S, START_S = 8, 3600, 10, 300"   # retuned by text: a rename must fail here, not run at production timings
+    assert marker in src, f"constants line not found in {WD}"
+    script = src.replace(marker, f"MAX_BLOCKS, WINDOW_S, GRACE_S, START_S = 8, 3600, {grace}, 2")
+    (HOME / "wd.py").write_text(script)
+    p = subprocess.Popen([sys.executable, str(HOME / "wd.py"), "t:p1"], env=ENV,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         p.wait(timeout=seconds); exited = True
