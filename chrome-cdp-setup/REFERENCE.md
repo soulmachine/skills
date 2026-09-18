@@ -237,9 +237,12 @@ the *default* profile, the one state that costs a quit and relaunch. Notes:
 - The same call has done three different things on one Mac in one day: applied with no
   dialog (once, the first time), raised the dialog (every later change of browser), and
   — right after a run of those dialogs had been declined within a few minutes — raised
-  nothing and changed nothing, which looks like an anti-nagging cooldown. The script's outcome is
-  right in all three: it reports what the handler table says, and on a timeout points
-  at System Settings. Don't assume the dialog will appear; do assume the read-back.
+  nothing and changed nothing, which looks like an anti-nagging cooldown: the same
+  `--revert`, run alone forty minutes later, raised the dialog normally. The script's
+  outcome is right in all three: it reports what the handler table says, and on a
+  timeout points at System Settings. Don't assume the dialog will appear; do assume the
+  read-back. A user who clicks "Keep" gets the same exit 1 and message as a timeout —
+  the handler table cannot tell the two apart, and the script says so.
 
 ## Rosetta trap (Apple Silicon)
 
