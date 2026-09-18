@@ -495,7 +495,7 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Decided-by:** human
 **Justification:** A 14-CLI survey of turn-end hooks: cline, pi and opencode cannot gate a turn at all; kimi blocks once per turn and only from the global config; grok and copilot cap at 8; hermes gates only when code was edited; amp and cursor resume by new user message with a cap of 5; omp, qodercli, devin and agy block uncapped. Sixteen different gates with three holes is a patchwork; one script against the Herdr CLI is the same gate for all sixteen, and a background process planted in a pane survives `agent start` and every later turn (verified with `claude` and `pi`). The turn counter is the edge: `Esc` increments it like a finished turn, so a user interrupt is re-prompted like any early end, which is why the stop is a name clear rather than a key. Offline self-test of eight scenarios (registration gate and give-up, name cleared, worker name, turn 0 left alone then idle new turn → one prompt, blocked → none, cap with window and per-pane counting, grace, a stop landing inside the grace) and a live dry run on this machine; the advisor's spot-check found the grace path ignoring a name cleared mid-grace and the registration gap, both fixed before install.
 **Outcome:** applied
-**Ref:** herdr-advisor/watchdog.sh, watchdog_selftest.py, HARNESS-CLIS.md. Commit: d1e0507. stop-hook.sh stub removed 2026-09-18 after the fleet pass, commit 5b5a56a.
+**Ref:** herdr-advisor/watchdog.sh, watchdog_selftest.py, HARNESS-CLIS.md. Commit: d1e0507. stop-hook.sh stub removed 2026-09-18 after the fleet pass, commit 5b5a56a. watchdog.sh ported to watchdog.py 2026-09-18, Q50.
 **Supersedes:** Q45's gate clause (advisor-side Stop hook → Herdr-level watchdog; the loop and the decision class stand).
 
 ## Q48 — herdr-advisor/watchdog-edge — tradeoff
@@ -506,7 +506,7 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Decided-by:** advisor
 **Justification:** The rule that the skill never edits harness configs binds the launch recipe, not a Herdr install the user runs once per host, the same setup already done here for claude and codex and reversible with `herdr integration uninstall`. A status-transition edge would fire on every `working→idle` flicker the turn counter was chosen to ignore (Q47's Esc argument), and `state_change_seq` moves on cursor and title changes; the turn edge passed on fourteen kinds once the two integrations were in. The outdated claude integration (v8 < v10) is left alone until the running pairing ends: no swapping the state hook under a live session. The 60 s wait costs one `agent get` a minute per advisor and nothing else; the self-test still passes.
 **Outcome:** applied
-**Ref:** herdr-advisor/watchdog.sh, HARNESS-CLIS.md (omp row, Gaps), SKILL.md (Stop the advisor). Commit: d1e0507.
+**Ref:** herdr-advisor/watchdog.sh, HARNESS-CLIS.md (omp row, Gaps), SKILL.md (Stop the advisor). Commit: d1e0507. watchdog.sh ported to watchdog.py 2026-09-18, Q50.
 
 ## Q49 — herdr-advisor/review-disposition — gate-resolution
 
@@ -517,3 +517,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** The rule is that the review runs before the commit, not that the user's hands run it; the composer path satisfies it without the worker replicating the skill's workflow, which its refusal message forbids. Each rejected finding trades a marginal gain against re-verifying a script that passed fifteen live kinds tonight or reopening a grilled decision; each applied one removes lines or a silent coupling and touches no decided question.
 **Outcome:** applied
 **Ref:** /tmp/herdr-advisor-phaseD-review.md (findings); herdr-advisor/SKILL.md, HARNESS-CLIS.md, watchdog_selftest.py
+
+## Q50 — herdr-advisor/watchdog-python — deviation
+
+**Question:** Q49 deferred three review findings as follow-ups: 5 (rewrite `watchdog.sh` in Python), 9 (commit the scratchpad `launch-test.sh`), and 6 (a combined model×harness question, grill Q5's two-question dialog). The user asked for all three. Does the Python port change the loop, and what verifies it?
+**Options considered:** a line-for-line port of `watchdog.sh` into `watchdog.py` / take the port as the chance to redesign the edge (Q48's options) / keep the shell script and commit `launch-test.sh` alone
+**Chosen:** The first. `watchdog.py` is `watchdog.sh` in one language instead of two: the same registration gate, waits, turn edge, grace, cap, log lines, `REASON` and release notification, verbatim, so Q47 and Q48 stand unchanged; only the shell's `set -- $(state)` positional juggling and the two python heredocs are gone. `SKILL.md`'s recipe line becomes `python3 …/watchdog.py <pane-id> &`; `watchdog_selftest.py` runs the same eight scenarios against the port, and its marker is now the one constants line. The scratchpad `launch-test.sh` lands as `harness/launch-test.sh` with its production-recipe planting (`python3 …/watchdog.py`), and `HARNESS-CLIS.md`'s legend names it as the launch behind a row without `†`. Finding 6 is put to the user as a grill question and is not settled here.
+**Decided-by:** user
+**Justification:** The review's estimate held: the port removes lines without moving a decision, and the risk Q49 named, re-verifying a live-verified script, is paid in full by re-running the fifteen-row live matrix through the committed `harness/launch-test.sh` against `watchdog.py` (results in the Ref). A redesign of the edge would reopen Q48 for no finding that asked for it.
+**Outcome:** applied
+**Ref:** herdr-advisor/watchdog.py (replaces watchdog.sh), watchdog_selftest.py, SKILL.md (recipe), HARNESS-CLIS.md (legend), harness/launch-test.sh. Commit: f181959. Live matrix 2026-09-18 02:08–02:25: 13 of 15 rows re-prompted once and released on the name clear (pi, claude, opencode, omp, kimi, agy, devin, cline, hermes, qodercli, amp, cursor, grok; grok on its second run, its turn counter stayed 0 on the first); kiro turn 0 throughout as its Gap says; codex out on quota until 2026-09-23, watchdog still re-prompted once and exited.
