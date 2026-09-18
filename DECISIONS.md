@@ -548,3 +548,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Outcome:** applied
 **Ref:** herdr-advisor/ADVISOR.md (Decide, Next-task sources). Commit: 0990dc3.
 **Supersedes:** Q26 — only its rank claim (the suggestion now precedes the composed steps too, not just the other sources); Q45's Decide order gains a step.
+
+## Q53 — herdr-advisor/org-move — irreversible-action
+
+**Question:** `herdr-advisor` moves to the `OpenSWE` org. Does this repo keep a copy, and does the extraction preserve history?
+**Options considered:** publish to OpenSWE and keep this copy (two sources) / full move with a fresh-init repo, matching the `log-decisions` 1.0.0 precedent / full move preserving history via `git subtree split`
+**Chosen:** Full move, history preserved. The 24 commits were split out with `git subtree split -P herdr-advisor` and re-nested under `skills/herdr-advisor/` — the layout every entry in the skills-CLI lock file uses — so `npx skills add OpenSWE/herdr-advisor` and the Claude plugin marketplace both resolve it. Q22–Q52 were copied to the new repo's own `DECISIONS.md`, numbering preserved, and the originals stay here: the journal is append-only. All nine fleet hosts were repointed *before* this deletion, not after.
+**Decided-by:** human (full move and carrying the journal); agent (preserving history rather than a fresh init)
+**Justification:** Two copies of a skill that ships fleet-wide would drift silently. History was preserved because `subtree split` is one built-in command needing no `git-filter-repo`, and squashing later is easy where unsquashing is not; the 24 messages are real design history. Numbering was preserved rather than rebased to Q1 because `Q<n>` also appears in those entries as *grilling*-question references (e.g. "grill Q5"), which a blind offset would silently corrupt — the new journal documents the resulting leading gap so no future agent "repairs" it. Ordering was reversed from the approved plan (fleet first, delete second) to remove the window in which a host pulling this repo would lose the skill.
+**Outcome:** applied
+**Ref:** <https://github.com/OpenSWE/herdr-advisor> commit 0396fe0. Sibling move: `swe-workflow/log-decisions` → `OpenSWE/log-decisions` (transferred, 301 in place).
