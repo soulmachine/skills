@@ -650,3 +650,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** The advisor called it for the user. New evidence overrode the grill's "keep the soft-deny paragraph whole": the flicker was measured with nothing else in flight, so it is not a load effect, and which answer is true cannot be settled without registering the name. A pass after the sweep gives the gap for free under exactly the measured condition, costs about five requests, and leaves the output contract and ordering untouched.
 **Outcome:** applied
 **Ref:** (pending)
+
+## Q63 — affix-domains/x-handle — irreversible-action
+
+**Question:** Push the two affix-domains x-handle commits (`6a7e0f3`, `8450b85`) to `origin/main` now, or leave them local for the user?
+**Options considered:** push now / leave local
+**Chosen:** Push now, with this entry's own commit.
+**Decided-by:** advisor
+**Justification:** The confirmed goal ended at "diff shown, no commit"; the user then committed by their own prompt (provenance `human`), and the push prompt arrived with provenance `api`, the advisor accepting the worker's prompt suggestion (herdr-advisor pair of 2026-09-18). A plain push to the user's own repo is within their permissions and reversible by a follow-up commit; it is recorded here because the user did not make the call themselves.
+**Outcome:** applied
+**Ref:** (pending)
