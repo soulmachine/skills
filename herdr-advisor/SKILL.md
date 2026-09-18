@@ -47,7 +47,11 @@ command line; read your model and effort from it by the flags in your CLI's
 2. *Harness CLI*: the model family's own CLI first, marked "(Recommended)",
    then `pi`, then the installed CLIs and shell aliases that run the model,
    found with `command -v` and `zsh -ic alias` against the `HARNESS-CLIS.md`
-   rows and its alias table; at most four.
+   rows and its alias table; at most four. The dialog cannot make these
+   options depend on the first answer, so each option names the model it
+   would run (`codex: gpt-6-astra`), and a harness option that names a
+   different model than the one chosen in question 1 is the user's answer
+   to both.
 
 On a harness without that tool, write the same two questions as numbered
 options in plain text and end your turn; continue on the user's answer.
