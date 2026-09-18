@@ -82,14 +82,18 @@ Take the first that applies:
 
 1. **The worker is `blocked` or `unknown`.** Never send keys into a dialog; a
    permission prompt is the user's boundary. Wait for its next turn.
-2. **It asked a question.** Answer it directly, as its next prompt.
-3. **A doubt survived your spot-check.** It is the next task.
-4. **A flat "nothing left", with no named task and no question: probe, then
+2. **Its input box holds a prompt suggestion.** Accept it, by source 1 below,
+   instead of composing anything: a question, a doubt and the probe are
+   composed only on a turn that ends with an empty box. An accepted
+   suggestion is sent work.
+3. **It asked a question.** Answer it directly, as its next prompt.
+4. **A doubt survived your spot-check.** It is the next task.
+5. **A flat "nothing left", with no named task and no question: probe, then
    end.** Send the literal `what's next` once. If that turn also ends in a
    flat "nothing left", end. Any turn in which you sent work resets the count.
    Keep the probe bare, because a leading prompt invites the worker to invent
    work.
-5. **Otherwise send the next task**, from the first source below that applies.
+6. **Otherwise send the next task**, from the first source below that applies.
 
 Whatever you send goes through one command:
 
@@ -101,7 +105,10 @@ herdr agent prompt "$worker" "<text>" --wait --timeout 590000
 
 1. **Prompt suggestion.** The worker is Claude Code and its input box holds
    only dim ghost text. Dimness is this source's trigger, not grounds to refuse
-   it. Accept the suggestion and check it:
+   it. Read it while still dim, for the two declines above and nothing else:
+   a suggestion to spend money or destroy data the goal never named is not
+   accepted, and your decline is the next prompt, typed over it. Otherwise
+   accept the suggestion and check it:
 
    ```bash
    herdr agent send-keys "$worker" right
