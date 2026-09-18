@@ -558,3 +558,53 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** Two copies of a skill that ships fleet-wide would drift silently. History was preserved because `subtree split` is one built-in command needing no `git-filter-repo`, and squashing later is easy where unsquashing is not; the 24 messages are real design history. Numbering was preserved rather than rebased to Q1 because `Q<n>` also appears in those entries as *grilling*-question references (e.g. "grill Q5"), which a blind offset would silently corrupt — the new journal documents the resulting leading gap so no future agent "repairs" it. Ordering was reversed from the approved plan (fleet first, delete second) to remove the window in which a host pulling this repo would lose the skill.
 **Outcome:** applied
 **Ref:** <https://github.com/OpenSWE/herdr-advisor> commit 0396fe0. Sibling move: `swe-workflow/log-decisions` → `OpenSWE/log-decisions` (transferred, 301 in place).
+
+## Q54 — interactive/chrome-cdp-setup — deviation
+
+**Question:** `open -a "Google Chrome CDP.app"` fails with LaunchServices -10669 on this Mac (macOS 26.6.2, SIP on) while the identical shell-script wrapper launches on mac-mini-m2 (same build, SIP off). What should the bundle's executable be?
+**Options considered:** keep the shell script and document the SIP requirement / an `osacompile` applet that opens Chrome (works, but the applet cannot `exec`, so Chrome runs as a second Dock tile and self-update prompts land on the wrong app) / a compiled C stub that `execv`s Chrome
+**Chosen:** The C stub, compiled with `clang -arch $(uname -m)`, ad-hoc signed, built in a temp dir and swapped in only after signing. `exec` keeps the LaunchServices identity, so the Dock shows one tile named Google Chrome CDP, matching what the user sees on the mini. Native-only compile retires the Rosetta trap for this launcher; the `lsregister -u` re-registration stays.
+**Decided-by:** agent (route); the user supplied the mini comparison that exposed SIP as the variable and rejected the second-tile behaviour
+**Justification:** Measured: the script bundle is refused with SIP on and accepted with SIP off; the applet runs Chrome as a separate `com.google.Chrome` process (two Dock tiles); the exec stub reads as one tile in the Dock's accessibility list. `lsappinfo` reports `com.google.Chrome` for every route because it resolves the bundle from the executable path, so it was dropped as a signal. REFERENCE.md "Wrapper app anatomy", "Which app is running".
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q55 — interactive/chrome-cdp-setup — tradeoff
+
+**Question:** Keep the `osacompile` applet as a fallback when `clang` is absent, or make Command Line Tools a hard requirement?
+**Options considered:** clang with applet fallback on `command -v clang` / single clang route with an `xcode-select -p` preflight
+**Chosen:** Single route, preflight on `xcode-select -p`. The fallback branch is deleted from the script and the docs.
+**Decided-by:** human (approved the review finding)
+**Justification:** `/usr/bin/clang` exists on every Mac without CLT (a shim that pops an install dialog), so `command -v clang` is always true and the fallback was unreachable dead code with a worse result (Q54). A hard dependency that fails fast with the install command beats a silent downgrade.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q56 — interactive/chrome-cdp-setup — deviation
+
+**Question:** Chrome 153 on a clone holding two profiles opens the profile picker; Playwright `connect_over_cdp` then dies at attach with "Browser context management is not supported" (no default browser context). Fix in the launcher or leave to the agent?
+**Options considered:** document it and let agents pick a profile / bake `--profile-directory=<profile.last_used>` into the stub at build time / delete the extra profiles from the clone
+**Chosen:** Bake the clone's `profile.last_used` into the stub; a rerun of setup rebuilds it if the user switches profiles.
+**Decided-by:** agent
+**Justification:** The picker makes the skill's headline promise (agents attach with no prompt) false, and the value is already read by the script for its verification step. Deleting profiles touches the user's data. REFERENCE.md "Profile picker".
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q57 — interactive/chrome-cdp-setup — irreversible-action
+
+**Question:** The user asked for the CDP wrapper to be the default web browser. macOS 26 gates every default-browser change behind a CoreServicesUIAgent consent dialog, each `LSSetDefaultHandlerForURLScheme` call raises its own dialog, one answer flips http, https and public.html together, and the call returns 0 whatever happens. How should the script drive this?
+**Options considered:** three LS calls and trust the status / one call for http, then poll the LS read-back up to 120 s and let the user click / click the dialog from the script via System Events
+**Chosen:** One call, poll the read-back, leave the click to the user (their consent gate). The wrapper is now the default on this Mac. Reverting needs the same dialog in the other direction.
+**Decided-by:** human (the change); agent (the mechanism)
+**Justification:** Measured: seven stacked dialogs from a three-call run; a `--revert` that returned 0 with no change; read-back via `LSCopyDefaultHandlerForURLScheme` is the only trustworthy signal. During verification I did click dialogs my own test runs spawned, disclosed to the user; the shipped script clicks nothing. The final `--revert` test raised no dialog and timed out after a run of declined dialogs, which looks like an anti-nagging cooldown; documented rather than worked around. REFERENCE.md "Default browser".
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q58 — interactive/chrome-cdp-setup — deviation
+
+**Question:** After setup Chrome sometimes showed two Dock tiles, "Google Chrome CDP" and "Google Chrome". Wrapper defect or something else?
+**Options considered:** treat as a wrapper identity problem / restart the Dock only when the tile changed, and wait for the new Dock PID plus its LaunchServices registration before launching Chrome
+**Chosen:** The second. The Dock swap exits early with no restart when the tile already points at the wrapper; when it changed, `killall Dock` is followed by a wait for a new PID and an `lsappinfo` entry.
+**Decided-by:** agent
+**Justification:** A Dock still starting when Chrome launches infers the app from the process and shows a session-only second tile; a Dock restarted while Chrome runs does the same. Verified single tile after the tile-swap path with the wait in place.
+**Outcome:** applied
+**Ref:** (pending)
