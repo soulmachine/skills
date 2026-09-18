@@ -1,0 +1,19 @@
+{
+  "name": "herdr-advisor",
+  "description": "Read-only Herdr advisor: reads, searches, browses and drives its worker through herdr; never edits.",
+  "model": "<model-id>",
+  "tools": ["read", "shell", "web"],
+  "includeMcpJson": false,
+  "permissions": {
+    "rules": [
+      { "capability": "fs_read", "effect": "allow" },
+      { "capability": "web_fetch", "effect": "allow" },
+      { "capability": "web_search", "effect": "allow" },
+      { "capability": "shell", "match": ["herdr *"], "effect": "allow" },
+      { "capability": "shell", "match": ["*"], "exclude": ["herdr *"], "effect": "deny" },
+      { "capability": "fs_write", "effect": "deny" },
+      { "capability": "mcp", "effect": "deny" },
+      { "capability": "subagent", "effect": "deny" }
+    ]
+  }
+}

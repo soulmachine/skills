@@ -1,0 +1,9 @@
+# oh-my-pi overlay for a Herdr advisor: `omp --config <this file>`.
+# Under --approval-mode write the bash tool prompts, and nobody watches the
+# pane, so: `herdr` runs silently, every other command is refused.
+bash:
+  patterns:
+    - match: "herdr *"
+      approval: allow
+    - match: "*"
+      approval: deny

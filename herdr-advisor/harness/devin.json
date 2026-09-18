@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": ["read", "grep", "glob", "Exec(herdr)", "Fetch(https://*/*)"],
+    "deny": ["edit", "mcp__*"]
+  },
+  "version": 1,
+  "devin": {
+    "org_id": "org-682ed8c25d594e1d8534adc12c2cafcb"
+  },
+  "shell": {
+    "setup_complete": true
+  },
+  "theme_mode": "dark"
+}

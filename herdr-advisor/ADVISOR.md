@@ -22,7 +22,8 @@ If the handoff carries a question, answer it first, by prompting the worker.
 
 Your whole life is one turn. Nobody reads your pane and nobody prompts you, so
 the loop never waits on the user and never ends early: it runs until the end
-condition below, and a Stop hook sends back any turn that ends without it.
+condition below, and a watchdog in your pane re-prompts any turn that ends
+before it.
 
 **Every pass starts from the worker's state**, never from a wait, because a
 wait for a turn that has already ended never returns. Keep R, the turn whose
@@ -49,8 +50,10 @@ lost, so never resend blindly.
 **Keep the tick long.** `claude`: pass the Bash tool `timeout: 600000` on every
 wait and on `prompt --wait`, or it cuts the tick to 120 s. `codex`: the shell
 tool yields after at most 30 s while the command keeps running, so poll it
-with `write_stdin`; never resubmit it. Between ticks say nothing: write a line
-only when you send to the worker or end.
+with `write_stdin`; never resubmit it. Any other harness: give its shell tool
+the longest timeout it takes, and on a cut wait start the pass again from
+`agent get`. Between ticks say nothing: write a line only when you send to
+the worker or end.
 
 **Spot-check, don't audit.** The loop is serialized, so while you read, the
 worker idles. Compare the worker's report with the spec or goal named in your
@@ -129,12 +132,18 @@ herdr agent prompt "$worker" "<text>" --wait --timeout 590000
 ## Ending
 
 Two ends only: the double "nothing left" above, or a message from the user in
-your own pane telling you to stop. Both end the same way: the last line of
-your final message is plain text, no fence or emphasis, of the form
-`ADVISOR LOOP ENDED: <the two answers, quoted, or "user said stop">`, and you
-end your turn. The Stop hook lets that line through and sends every other turn
-end back to the loop, so there is no other way out; an ended pair is
-re-created by the worker's next skill invocation, not by you.
+your own pane telling you to stop. Both end the same way: your last act is
+
+```bash
+herdr agent rename "$HERDR_PANE_ID" --clear
+```
+
+then say which end it was, quoting the two answers or "user said stop", and
+end your turn. The watchdog re-prompts every turn that ends while your pane
+still holds your `-advisor` name, up to eight an hour, after which it releases
+you and notifies the user; a new turn you start within 10 s is left alone. So
+there is no other way out; an ended pair is re-created by the user's next
+`/herdr-advisor`, not by you.
 
 ## Sending input
 
