@@ -16,6 +16,9 @@ DOCK_BACKUP="$HOME/Library/Preferences/com.apple.dock.backup-before-cdp.plist"
 
 [ -x "$CHROME_BIN" ] || { echo "ERROR: Google Chrome not found at $CHROME_APP" >&2; exit 1; }
 [ -d "$SRC" ] || { echo "ERROR: no Chrome profile at $SRC" >&2; exit 1; }
+# /usr/bin/clang exists even without Command Line Tools (it is a shim that pops an
+# install dialog), so ask xcode-select instead of `command -v`.
+xcode-select -p >/dev/null 2>&1 || { echo "ERROR: Command Line Tools required to compile the launcher: xcode-select --install" >&2; exit 1; }
 echo "==> $("$CHROME_BIN" --version)"
 
 echo "==> Quitting Chrome (session restores on relaunch)"
@@ -51,10 +54,18 @@ LAST_USED=$(python3 -c "import json; print(json.load(open('$UDD/Local State')).g
 echo "    clone OK (active profile: $LAST_USED)"
 
 echo "==> Building wrapper app: $APP"
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+# A tiny Mach-O that execs Chrome. Mach-O, because with SIP on macOS 26 refuses to
+# launch a bundle whose executable is a shell script (LaunchServices -10669). exec,
+# because it keeps the process LaunchServices started from this bundle, so the Dock
+# shows one tile named Google Chrome CDP for the running browser. See REFERENCE.md
+# "Wrapper app anatomy".
+TMPD=$(mktemp -d)
+BUILD="$TMPD/$(basename "$APP")"
+mkdir -p "$BUILD/Contents/MacOS" "$BUILD/Contents/Resources"
+# CFBundleURLTypes / CFBundleDocumentTypes claim what a browser claims, so the bundle
+# can be picked as the default handler for links and .html files. Declaring them does
+# not take the default away from Chrome — scripts/set_default_browser.sh does that.
+cat > "$BUILD/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -79,31 +90,64 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<string>11.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Web site URL</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>http</string>
+				<string>https</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>HTML document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.html</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
 PLIST
-
-# On Apple Silicon, pin the native slice. Without this, a stale LaunchServices
-# record for the wrapper can launch this script's bash under Rosetta, and exec
-# preserves translation — the whole Chrome tree then runs x86_64 at several
-# times the CPU cost (seen 2026-07-21: renderers pegged, load 15+).
-ARCH_PREFIX=""
-[ "$(uname -m)" = "arm64" ] && ARCH_PREFIX="arch -arm64 "
-
-cat > "$APP/Contents/MacOS/launcher" <<SH
-#!/bin/bash
-# Chrome 136+ ignores --remote-debugging-port on the default user-data-dir,
-# so this launches against the cloned profile dir instead. The flags also take
-# precedence over the Chrome 144+ chrome://inspect toggle (approval mode), so
-# no "Allow remote debugging?" prompt appears even if that toggle is on.
-# arch -arm64 (Apple Silicon only) guards against a stale LaunchServices
-# record running this script — and therefore Chrome — under Rosetta.
-exec ${ARCH_PREFIX}"$CHROME_BIN" --remote-debugging-port=$PORT --user-data-dir="\$HOME/Library/Application Support/Google/Chrome-CDP"
-SH
-chmod +x "$APP/Contents/MacOS/launcher"
-
-cp "$CHROME_APP/Contents/Resources/app.icns" "$APP/Contents/Resources/app.icns"
-codesign --force -s - "$APP"
+# --user-data-dir: Chrome 136+ ignores --remote-debugging-port on the default dir.
+# --profile-directory: with several profiles in the clone Chrome would open the
+#   profile picker, and until one is picked there is no default browser context —
+#   Playwright's connect_over_cdp dies at attach.
+# A URL or file handed to this bundle arrives as a GURL/odoc Apple Event, not argv;
+# the event survives the exec and Chrome opens it, which is what lets the wrapper
+# stand in as the default browser.
+cat > "$TMPD/launcher.c" <<C
+#include <unistd.h>
+int main(void) {
+    char *argv[] = {"$CHROME_BIN",
+                    "--remote-debugging-port=$PORT",
+                    "--user-data-dir=$UDD",
+                    "--profile-directory=$LAST_USED",
+                    0};
+    execv(argv[0], argv);
+    return 1;
+}
+C
+# Native slice only: with no x86_64 slice the stub cannot run under Rosetta, which
+# retires the Rosetta trap (REFERENCE.md) for this launcher.
+clang -arch "$(uname -m)" -o "$BUILD/Contents/MacOS/launcher" "$TMPD/launcher.c"
+cp "$CHROME_APP/Contents/Resources/app.icns" "$BUILD/Contents/Resources/app.icns"
+codesign --force -s - "$BUILD"
+# Swap in only once built and signed, so a failed build leaves the old wrapper working.
+rm -rf "$APP"
+mv "$BUILD" "$APP"
+rm -rf "$TMPD"
 # Unregister then register: LaunchServices snapshots the Info.plist at first
 # registration and keys freshness on mtime. Rebuilding the bundle within the
 # same second leaves the mtime unchanged, and `lsregister -f` alone does NOT
@@ -118,7 +162,7 @@ echo "==> Swapping Dock tile (backup: $DOCK_BACKUP)"
 WORK=$(mktemp /tmp/dock-edit.XXXXXX)
 defaults export com.apple.dock "$WORK"
 python3 - "$WORK" <<'PY'
-import plistlib, sys
+import plistlib, subprocess, sys, time
 
 path = sys.argv[1]
 with open(path, "rb") as f:
@@ -157,10 +201,19 @@ else:
 d["persistent-apps"] = apps
 with open(path, "wb") as f:
     plistlib.dump(d, f)
+subprocess.run(["defaults", "import", "com.apple.dock", path], check=True)
+# A Dock still starting up when Chrome launches infers the app from the process
+# (Google Chrome.app) and shows a second tile for that session, so wait for the new
+# Dock to register with LaunchServices before anything launches.
+old = subprocess.run(["pgrep", "-x", "Dock"], capture_output=True, text=True).stdout.strip()
+subprocess.run(["killall", "Dock"])
+for _ in range(50):
+    new = subprocess.run(["pgrep", "-x", "Dock"], capture_output=True, text=True).stdout.strip()
+    if new and new != old and b"pid" in subprocess.run(["lsappinfo", "info", "-app", "com.apple.dock"], capture_output=True).stdout:
+        break
+    time.sleep(0.2)
 PY
-defaults import com.apple.dock "$WORK"
 rm -f "$WORK"
-killall Dock || true
 
 echo "==> Launching CDP Chrome"
 open -a "$APP"
@@ -178,8 +231,7 @@ if [ "$(uname -m)" = "arm64" ]; then
         echo "    native arm64 OK"
     else
         echo "ERROR: Chrome is running x86_64 under Rosetta — expect multiplied CPU usage." >&2
-        echo "       Fix: quit Chrome, run '$LSREGISTER -u \"$APP\"' then '$LSREGISTER \"$APP\"'," >&2
-        echo "       and relaunch from the Dock. See REFERENCE.md 'Rosetta trap'." >&2
+        echo "       See REFERENCE.md 'Rosetta trap'." >&2
         exit 1
     fi
 fi

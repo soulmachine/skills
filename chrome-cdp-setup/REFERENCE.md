@@ -16,7 +16,9 @@ closed — when Chrome cannot tell, it treats the dir as default:
 - `--user-data-dir=default` is a **relative** path: Chrome creates a blank profile named
   `default` under the cwd. It listens, with none of your state.
 - `--profile-directory=Default` is a different knob (a sub-profile inside a data dir)
-  and does not help — no listener, no `DevToolsActivePort`.
+  and does not lift the rule — on its own, no listener, no `DevToolsActivePort`. It is
+  still required alongside `--user-data-dir` when the clone holds more than one profile;
+  see "Profile picker" below.
 - Chrome is single-instance per data dir: if the real Chrome is already running, a
   second launch with flags hands off to the existing process and the flags never apply.
 - The refusal is logged to stderr only (`DevTools remote debugging requires a
@@ -41,6 +43,31 @@ Cloning the real profile into the new dir keeps every login, bookmark, and exten
   clone broken.
 - The clone is a fork, not a mirror: from the switch on, the clone is the daily driver
   and the original is a frozen fallback. Nothing re-seeds in either direction.
+- The tabs that were open when Chrome quit only come back if the profile's
+  `session.restore_on_startup` is `1`; unset (Chrome's default) opens a new tab page, and
+  the tab set is then one ⌘⇧T / History ▸ Recently closed away. Chrome prunes old
+  `Default/Sessions/Session_*` and `Tabs_*` files after a couple of launches, so that
+  offer expires in the clone — the originals stay in the frozen profile, and copying the
+  newest `Session_*` + `Tabs_*` pair from there into the clone's `Sessions/` (Chrome
+  quit, clone's own newer pair removed first) puts the old window back within reach.
+
+## Profile picker (multi-profile clones)
+
+With two or more profiles in the data dir, Chrome opens the profile picker instead of a
+browser window, and **until someone picks a profile there is no default browser
+context**. CDP is up and answers `Target.*`, but every browser-context command fails:
+
+```
+Browser.setDownloadBehavior -> -32000 "Browser context management is not supported."
+```
+
+Playwright's `connect_over_cdp` calls exactly that during attach, so it dies at connect
+time on a healthy-looking endpoint — `/json/version` is 200, `verify_cdp.sh` says `OK`,
+and the only tell is a lone `chrome://profile-picker/` target in `/json/list`.
+
+Fix (baked into the launcher): pass `--profile-directory=<profile.last_used from the
+clone's Local State>` next to `--user-data-dir`. Chrome then opens that profile
+directly, the default context exists, and Playwright attaches.
 
 ## Approval mode (`chrome://inspect/#remote-debugging`, Chrome 144+)
 
@@ -113,13 +140,102 @@ PLAYWRIGHT_MCP_CDP_TIMEOUT=0 playwright-cli attach --cdp=chrome
 
 ## Wrapper app anatomy
 
-`/Applications/Google Chrome CDP.app` is a minimal bundle: an `Info.plist` (unique
-bundle id `com.archauto.chrome-cdp`), Chrome's own `app.icns` copied into Resources,
-and a `launcher` shell script that `exec`s the real Chrome binary with the two flags
-(prefixed with `arch -arm64` on Apple Silicon — see the Rosetta trap below).
-Ad-hoc sign it (`codesign --force -s -`) and register with `lsregister -u` followed
-by a plain `lsregister` — not `-f` alone (see the Rosetta trap). Locally created
-bundles carry no quarantine attribute, so Gatekeeper does not complain.
+`/Applications/Google Chrome CDP.app` is an `Info.plist` (bundle id
+`com.archauto.chrome-cdp`, name "Google Chrome CDP", Chrome's own `app.icns`, and the
+`http`/`https`/`public.html` claims that let it stand in as the default browser) plus a
+dozen-line C stub that `execv`s the real Chrome binary with `--remote-debugging-port`,
+`--user-data-dir` (the clone) and `--profile-directory`. Setup compiles it with `clang`
+(Command Line Tools required: `xcode-select --install`), ad-hoc signs it
+(`codesign --force -s -`) and registers it with `lsregister -u` followed by a plain
+`lsregister` — not `-f` alone (see the Rosetta trap).
+
+Two properties of that stub carry the design:
+
+- **It is a Mach-O.** A shell script as `CFBundleExecutable` — the obvious way to write
+  this, and what this skill shipped until 2026-09-18 — is refused **when SIP is
+  enabled**:
+
+  ```
+  $ open "/Applications/Google Chrome CDP.app"
+  _LSOpenURLsWithCompletionHandler() failed for the application ... with error -10669.
+  ```
+
+  Measured 2026-09-18 on two Macs running the identical build (macOS 26.6.2, 25G83)
+  with the same bundle recipe: SIP enabled → `-10669`, SIP disabled → launches. So a
+  SIP-disabled host keeps running an old script wrapper indefinitely and gives no hint
+  that the design is broken everywhere else. The bundle registers fine either way
+  (`lsd` builds its record, `codesign --strict` passes); the launch dies in
+  `_LSLaunchThruRunningboard`, and -10669 has no name in `LSConstants.h`, so nothing
+  spells the cause out. Running the script by hand still works, which is the confusing
+  part: Chrome and CDP come up exactly as intended, only `open` and the Dock tile fail.
+- **It `exec`s.** Because `exec` keeps the process LaunchServices started from this
+  bundle, the Dock keeps showing *this* bundle: one tile, named Google Chrome CDP. A URL
+  or file handed to the app arrives as a `GURL`/`odoc` Apple Event, and the event
+  survives the `exec` — Chrome opens it, so the bundle works as the default browser.
+  Compiled `-arch $(uname -m)`: a native-only stub cannot be translated at all, which
+  retires the Rosetta trap below for this launcher.
+
+An `osacompile` applet (Apple's Mach-O stub running an AppleScript) also launches with
+SIP on and needs no toolchain, but it cannot `exec`: it starts Chrome and exits, the
+wrapper tile goes dark, and Chrome appears as a second Dock tile. Not worth the saved
+`xcode-select --install`.
+
+## Which app is running
+
+Read the Dock, not `lsappinfo`. The Dock lists a single `Google Chrome CDP` tile and
+macOS names the wrapper in privacy prompts, but `lsappinfo` reports the process as
+`com.google.Chrome` at `/Applications/Google Chrome.app` — it resolves the bundle from
+the executable path, so it cannot tell a wrapper-launched Chrome from a plain one. The
+Dock's own list settles it:
+
+```bash
+osascript -e 'tell application "System Events" to tell process "Dock" \
+    to get name of every UI element of list 1' | tr ',' '\n' | grep -i chrome
+```
+
+Which Chrome is up is still a question for `verify_cdp.sh` — the CDP one is the process
+carrying `--remote-debugging-port` and `--user-data-dir=...Chrome-CDP`.
+
+### App Management blocks Chrome's updater
+
+Because the process belongs to the wrapper, macOS attributes what Chrome writes to
+"Google Chrome CDP", and Chrome updating itself is one app modifying another:
+
+> **Privacy & Security** — "Google Chrome CDP" was prevented from modifying apps on your Mac.
+
+Grant it System Settings ▸ Privacy & Security ▸ App Management, or Chrome's auto-update
+stays blocked and the browser quietly goes stale. A SIP-disabled host never shows this,
+which is another way that setup hides the problem.
+
+## Default browser
+
+`scripts/set_default_browser.sh` makes the wrapper the default web browser (`--revert`
+hands it back to Chrome). This closes the last hole in "always start Chrome from the
+Dock icon": a link clicked while Chrome is closed used to launch a flag-less Chrome on
+the *default* profile, the one state that costs a quit and relaunch. Notes:
+
+- macOS gates a default-browser change behind its own dialog — "Do you want to change
+  your default web browser to X or keep using Y?" — whichever API asks
+  (`LSSetDefaultHandlerForURLScheme` from JXA here; `NSWorkspace` and Chrome's own
+  "Make default" button get the same one). The script asks, tells you to click, and
+  polls the handler table for up to 120 s. Leave the click to the user: it is their
+  consent gate, the same rule as for Chrome's remote-debugging prompt.
+- One answer covers `http`, `https` and `public.html` together (measured: a click on
+  the `http` dialog flipped all three), and **every** `LSSetDefaultHandlerForURLScheme`
+  call raises its own dialog — so the script makes exactly one call, for `http`. Three
+  calls meant three stacked dialogs.
+- The call returns `0` whether or not the user has answered; only the read-back
+  (`LSCopyDefaultHandlerForURLScheme`) says what took. Don't trust the status code.
+- The wrapper only qualifies because its `Info.plist` claims those types *and* the URL
+  it is handed survives the `exec` as an Apple Event — see "Wrapper app anatomy".
+- Chrome is single-instance per data dir, so a link with the CDP Chrome already up opens
+  as a new tab in it rather than launching anything.
+- The same call has done three different things on one Mac in one day: applied with no
+  dialog (once, the first time), raised the dialog (every later change of browser), and
+  — right after a run of those dialogs had been declined within a few minutes — raised
+  nothing and changed nothing, which looks like an anti-nagging cooldown. The script's outcome is
+  right in all three: it reports what the handler table says, and on a timeout points
+  at System Settings. Don't assume the dialog will appear; do assume the read-back.
 
 ## Rosetta trap (Apple Silicon)
 
@@ -135,7 +251,7 @@ Mechanism:
   forever — even `lsregister -f` does not replace it. Only `lsregister -u <app>`
   followed by re-registration purges it.
 - If that stale snapshot contains `LSArchitecturePriority = (x86_64, arm64)`, LS
-  launches the wrapper's `/bin/bash` translated, and **`exec` preserves Rosetta
+  launched the wrapper — then a bash script — translated, and **`exec` preserves Rosetta
   translation into the universal Chrome binary** and all its helpers. Nothing in
   Chrome's own plist or binary is wrong; the wrapper's LS record alone decides.
 
@@ -152,9 +268,9 @@ case-insensitively, or a healthy native Chrome reads as Rosetta.
 
 Fix: quit Chrome, `lsregister -u "/Applications/Google Chrome CDP.app"`, re-register
 with plain `lsregister <app>`, relaunch from the Dock. Prevention (both baked into
-`setup_chrome_cdp.sh`): the launcher script uses `exec arch -arm64 ...` on Apple
-Silicon so even a bad LS record cannot force Rosetta, and setup registers with
-`-u` + re-register instead of `-f`.
+`setup_chrome_cdp.sh`): the launcher is compiled for the native architecture only, so
+LS has no x86_64 slice to run translated and the `exec` into Chrome stays native; and
+setup registers with `-u` + re-register instead of `-f`.
 (`lsregister` lives at `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister`.)
 
 ## Dock tile swap
@@ -246,6 +362,9 @@ and waits for each, and renderers Chrome has frozen answer slowly. Measured here
 ## Revert
 
 ```bash
+scripts/set_default_browser.sh --revert   # first, while the wrapper still exists; one dialog to click.
+                                           # If it times out, pick Chrome in System Settings ▸ Desktop & Dock
+                                           # before deleting the wrapper, or links point at a missing app.
 defaults import com.apple.dock ~/Library/Preferences/com.apple.dock.backup-before-cdp.plist
 killall Dock
 rm -rf "/Applications/Google Chrome CDP.app"

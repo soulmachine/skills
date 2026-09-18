@@ -28,21 +28,34 @@ Scripts live in this skill's `scripts/` dir; run them with absolute paths
 
 ```bash
 scripts/setup_chrome_cdp.sh              # full setup (default port 9222)
+scripts/set_default_browser.sh           # optional: make it the default browser — one macOS dialog to click (--revert undoes it)
 scripts/verify_cdp.sh                    # signals + one-line verdict naming the state and the fix
 uv run --with playwright python scripts/cdp_agent_test.py   # external-agent smoke test
 ```
 
+The Dock tile stays named "Google Chrome CDP" while Chrome runs, because the launcher
+`exec`s Chrome and keeps the app identity. One consequence: macOS attributes Chrome's
+own writes to the wrapper, so grant it App Management (System Settings ▸ Privacy &
+Security) or Chrome's auto-update stays blocked. See REFERENCE.md "Which app is running".
+
 ## Setup workflow
 
-1. Preflight: confirm `/Applications/Google Chrome.app` exists and `/Applications` is
-   writable; note profile size with `du -sh ~/Library/Application\ Support/Google/Chrome`.
+1. Preflight: confirm `/Applications/Google Chrome.app` exists, `/Applications` is
+   writable and Command Line Tools are installed (`xcode-select -p`); note profile size
+   with `du -sh ~/Library/Application\ Support/Google/Chrome`.
 2. Run `scripts/setup_chrome_cdp.sh [port]`. It is idempotent and:
-   - quits Chrome cleanly (session restores on relaunch) and stops if anything still
-     holds the port — flag mode binds it with no fallback
+   - quits Chrome cleanly and stops if anything still holds the port — flag mode binds
+     it with no fallback. Open tabs come back on relaunch only if the profile restores
+     the last session; otherwise they are one ⌘⇧T away (REFERENCE.md)
    - clones `~/Library/Application Support/Google/Chrome` → `Chrome-CDP` (`cp -Rc`;
      skipped if the clone already exists)
-   - builds `/Applications/Google Chrome CDP.app` (Chrome's own icon, ad-hoc signed,
-     `arch -arm64` on Apple Silicon)
+   - builds `/Applications/Google Chrome CDP.app`: a compiled stub that `exec`s Chrome
+     with the flags, Chrome's icon, ad-hoc signed. Compiled because SIP refuses a script
+     executable; `exec` because that keeps the Dock tile named Google Chrome CDP
+     (REFERENCE.md "Wrapper app anatomy")
+   - pins `--profile-directory` to the clone's last-used profile, so a multi-profile
+     clone opens that profile instead of the picker — the picker leaves CDP with no
+     default browser context and Playwright's `connect_over_cdp` fails at attach
    - swaps the Dock's Chrome tile for the wrapper (Dock prefs backed up first) and
      restarts the Dock
    - launches the wrapper, waits for `http://127.0.0.1:<port>/json/version`, and on
@@ -63,6 +76,8 @@ uv run --with playwright python scripts/cdp_agent_test.py   # external-agent smo
 - Raw WS: re-fetch `webSocketDebuggerUrl` from `/json/version` each launch (it rotates).
 - Python agents need only `pip install playwright` or `uv run --with playwright` — no
   `playwright install` browser download, since they attach to the running Chrome.
+- `Browser context management is not supported.` at attach means Chrome is sitting on
+  the profile picker — see REFERENCE.md "Profile picker".
 - A first attach to a browser that has been up for hours with dozens of tabs can exceed
   Playwright's 30 s connect timeout: it attaches to every target, and idle renderers
   answer slowly. Raise the timeout (`PLAYWRIGHT_MCP_CDP_TIMEOUT` for playwright-cli) or
@@ -74,7 +89,9 @@ uv run --with playwright python scripts/cdp_agent_test.py   # external-agent smo
   a link click while Chrome is closed all launch the non-CDP default-profile instance —
   quit it and relaunch from the Dock. With the `chrome://inspect` toggle on, that
   instance also grabs port 9222 in approval mode: `/json/version` answers 404 and every
-  connection prompts. `verify_cdp.sh` names this state.
+  connection prompts. `verify_cdp.sh` names this state. `set_default_browser.sh` takes
+  the link click off that list by making the wrapper the default browser (one macOS
+  consent dialog).
 - Never run both instances at once (session divergence, duplicate extension connections).
 - The CDP server takes a few seconds after launch: poll with
   `curl --retry 30 --retry-delay 1 --retry-all-errors`.
