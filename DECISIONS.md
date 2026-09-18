@@ -537,3 +537,14 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** A combined question caps the choice at four pairs where two questions offer up to sixteen, and reopens a grilled decision for a display problem; naming the model in the option is the display fix alone.
 **Outcome:** applied
 **Ref:** herdr-advisor/SKILL.md (Choose the advisor, question 2). Commit: 80c87cc.
+
+## Q52 — herdr-advisor/suggestion-first — gate-resolution
+
+**Question:** The prompt suggestion (Claude Code's ghost text) was source 1 among the next-task sources since Q26, but the sources are reached only at the last step of Decide: a worker question, a surviving spot-check doubt and the `what's next` probe each composed text first, box unread. The user asked that a suggestion be taken with the right arrow instead of a composed prompt. Does that reach the Decide steps, and does "just send right arrow" drop the accept check?
+**Options considered:** the suggestion beats every Decide step but `blocked` / it beats the doubt and the probe but a direct question is still answered / today's order, with wording against composing at the sources step only; and, for the recipe, keep the read-back check or send `right` and `enter` blind; and screen the accepted text for the two declines, or take it unread
+**Chosen:** A new Decide step 2, right after `blocked`/`unknown`: a suggestion in the box is accepted by source 1's recipe, and a question, a doubt and the probe are composed only on a turn that ends with an empty box; an accepted suggestion is sent work and resets Q36's count. The recipe keeps its check (`right`, read the box for undimmed text with no user draft, `get`, `enter`, wait for `working`) and reads the ghost text, while still dim, for the two declines alone: a suggestion to spend money or destroy data the goal never named is not accepted and the decline is the next prompt, typed over it; everything else is taken (Q27 stands). The Next-task sources keep their order.
+**Decided-by:** user
+**Justification:** Grilling session, all recommendations accepted. The user's sentence carries no carve-out, and the ghost text after a worker's question is Claude Code's guess at the user's reply, which the advisor stands in for anyway; a question the suggestion did not answer returns next turn to an empty box, where step 3 answers it. The check stays because it is two commands and the only thing that tells ghost text from a user's half-typed draft, which `right` would merely cursor through. The two-decline screen is Decide's boundary already, applied to text the recipe reads anyway.
+**Outcome:** applied
+**Ref:** herdr-advisor/ADVISOR.md (Decide, Next-task sources). Commit: 0990dc3.
+**Supersedes:** Q26 — only its rank claim (the suggestion now precedes the composed steps too, not just the other sources); Q45's Decide order gains a step.
