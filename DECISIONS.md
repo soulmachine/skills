@@ -495,7 +495,7 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Decided-by:** human
 **Justification:** A 14-CLI survey of turn-end hooks: cline, pi and opencode cannot gate a turn at all; kimi blocks once per turn and only from the global config; grok and copilot cap at 8; hermes gates only when code was edited; amp and cursor resume by new user message with a cap of 5; omp, qodercli, devin and agy block uncapped. Sixteen different gates with three holes is a patchwork; one script against the Herdr CLI is the same gate for all sixteen, and a background process planted in a pane survives `agent start` and every later turn (verified with `claude` and `pi`). The turn counter is the edge: `Esc` increments it like a finished turn, so a user interrupt is re-prompted like any early end, which is why the stop is a name clear rather than a key. Offline self-test of eight scenarios (registration gate and give-up, name cleared, worker name, turn 0 left alone then idle new turn → one prompt, blocked → none, cap with window and per-pane counting, grace, a stop landing inside the grace) and a live dry run on this machine; the advisor's spot-check found the grace path ignoring a name cleared mid-grace and the registration gap, both fixed before install.
 **Outcome:** applied
-**Ref:** herdr-advisor/watchdog.sh, watchdog_selftest.py, HARNESS-CLIS.md. Commit: d1e0507.
+**Ref:** herdr-advisor/watchdog.sh, watchdog_selftest.py, HARNESS-CLIS.md. Commit: d1e0507. stop-hook.sh stub removed 2026-09-18 after the fleet pass, commit 5b5a56a.
 **Supersedes:** Q45's gate clause (advisor-side Stop hook → Herdr-level watchdog; the loop and the decision class stand).
 
 ## Q48 — herdr-advisor/watchdog-edge — tradeoff
