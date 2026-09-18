@@ -22,24 +22,26 @@ ordinary work and the rule governs it normally.
 
 - **Worker**: you, the main Herdr agent doing the user's work. Only you create
   the pair, and you make every change. Verify advice before acting on it.
-- **Advisor**: a read-only leaf agent. It advises you and leads you to the next
-  task; it never edits, it tells you what to change.
+- **Advisor**: a read-only leaf agent. It answers your questions, decides on
+  the user's behalf and leads you to the next task; it never edits, it tells
+  you what to change.
 
 Read `~/.agents/skills/herdr/SKILL.md` before operating on agents; this
 workflow authorizes that use of Herdr. Require `HERDR_ENV=1`: outside Herdr,
 continue the task directly rather than creating an advisor through another
-tool. Stay within the user's existing goal and permissions; preferences,
-private facts and authorization are the user's to answer.
+tool. Stay within the user's existing goal and permissions. Only a fact or
+act the user alone has (a one-time code, a password, a physical step) is the
+user's to answer; everything else, the advisor answers.
 
 ## Create or reuse the advisor
 
 **Name.** Run `herdr pane current --current`, then match its `pane_id` in
 `herdr agent list` to find your registered name; a pane or tab label is not an
-agent name. The advisor is `<worker-name>-advisor`, and the Stop-hook watchdog
-finds it only under that exact name in your tab. Names match
+agent name. The advisor is `<worker-name>-advisor`: its Stop hook keeps its
+loop alive only under a name with that suffix, so never choose a worker base
+that ends in `-advisor` yourself, or the hook gates you. Names match
 `[a-z][a-z0-9_-]{0,31}`: shorten the base to at most 24 characters, check for
-collisions, and choose a descriptive base if you are unnamed. A shortened or
-invented base goes unwatched.
+collisions, and choose a descriptive base if you are unnamed.
 
 **Model.** One advisor, from a different model family, with `<effort>` below
 set to `xhigh`:
@@ -119,9 +121,9 @@ prompting one.
 workspace, tab, and working directory. Sharing your family is not on its own
 grounds to replace it: judge it by the outrank rule, reading its `--model` and
 `--effort` with `herdr pane process-info --pane <id>`. Otherwise **create** one
-to your right, in the same tab and cwd, since the watchdog matches on the tab.
-This workflow splits right even when the Herdr skill would split down, opens no
-new tab or workspace, and leaves the user's focus where it is:
+to your right, in the same tab and cwd. This workflow splits right even when
+the Herdr skill would split down, opens no new tab or workspace, and leaves the
+user's focus where it is:
 
 ```bash
 herdr pane split --current --direction right --cwd "$PWD" --no-focus
@@ -149,25 +151,29 @@ herdr agent prompt "$advisor" "<handoff>"
 > <Your first question, if you have one.>
 
 Name the spec by path or issue rather than retelling it; with no spec, state
-the goal. For a review-only job, add: "This is a bounded assignment: answer
-once by prompting the worker, then stop."
+the goal.
 
 ## Work with the loop
 
-The advisor watches your turns and prompts you when each one ends. Your side:
+The advisor watches your turns and prompts you when each one ends. Nobody
+prompts the advisor: it never waits on the user, and it answers for the user.
+Your side:
 
 - **End your turn; never prompt or wait on the advisor.** A consult is a
-  turn-ending question. Consult before asking the user for a technical
-  judgment, and consider it before choosing an approach, after repeated
-  failures, and before declaring the task done. Give the question, evidence,
-  constraints and your proposed approach; the answer arrives as your next
-  prompt.
-- **Say plainly what remains**: tasks, a question, a decision for the user, or
-  "nothing left". The advisor asks `what's next` once to confirm before it
-  stops.
+  turn-ending question. Consult before asking the user for anything, and
+  consider it before choosing an approach, after repeated failures, and before
+  declaring the task done. Give the question, evidence, constraints and your
+  proposed approach; the answer arrives as your next prompt. Ask in that text,
+  never with `AskUserQuestion` or another dialog, which the advisor cannot
+  answer.
+- **Say plainly what remains**: tasks, a question, a fact or act only the user
+  can supply, or "nothing left". The advisor asks `what's next` once to
+  confirm before it ends.
 - **Flag irreversible steps** (publishing a version, transferring or deleting a
   remote resource, sending a message, force-pushing over shared history,
-  destroying untracked data, spending money), so the advisor holds for the
-  user instead of sending `go`.
+  destroying untracked data, spending money), so the advisor decides them
+  knowingly.
+- **Journal the advisor's answers.** Where the project keeps a `DECISIONS.md`,
+  record each call the advisor made for the user with `Decided-by: advisor`.
 
 Why each rule exists: `~/github.com/soulmachine/skills/DECISIONS.md`, Q22 onward.

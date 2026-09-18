@@ -1,20 +1,20 @@
 #!/bin/sh
-# Re-arm a Herdr advisor whose next-task loop has ended.
+# Keep a Herdr advisor's loop alive: block its turn end unless the loop has
+# legitimately ended.
 #
-# The advisor's `herdr agent wait` lives only inside an advisor turn, so when
-# that turn ends nothing watches the worker and nothing can restart it. This
-# fires on the worker's turn end and pokes the advisor when its loop is gone.
+# ADVISOR.md makes the advisor's whole life one turn, ended only by a final
+# line `ADVISOR LOOP ENDED: <reason>`. Models end turns early anyway. This runs
+# as the ADVISOR's own Stop hook: a turn end without that line is sent back
+# with a reason, which both Claude Code and Codex feed to the model as its next
+# instruction, so the same turn continues.
 #
 # Registered by ~/.agents/hooks/Stop.toml, which agentstow renders into both
 # ~/.claude/settings.json and ~/.codex/hooks.json. The logic lives here, in the
-# skill it enforces, so an edit to the loop and to its watchdog land together.
+# skill it enforces, so an edit to the loop and to its gate land together.
 #
 # Runs on EVERY Claude Code and Codex turn on this machine. It must be a cheap
-# silent no-op everywhere except a paired Herdr worker pane, and it must never
-# fail a turn: every path exits 0.
-#
-# Poking is opt-in. Without ~/.config/herdr-advisor/enabled it only records the
-# poke it would have sent, which is the log-only rollout phase.
+# silent no-op everywhere except an advisor pane, and it must never fail a
+# turn: every path exits 0 and prints JSON.
 
 # Both agents deliver the hook payload as JSON on stdin. Drain it either way, or
 # the writer can see a closed pipe.
@@ -32,23 +32,30 @@ export HERDR_HOOK_INPUT
 command -v python3 >/dev/null 2>&1 || { printf '{}'; exit 0; }
 
 python3 - <<'PY'
-import json, os, pathlib, subprocess, sys, time
+import json, os, pathlib, subprocess, time
 
 HERDR = os.environ.get("HERDR_BIN_PATH") or "herdr"
 PANE = os.environ.get("HERDR_PANE_ID", "")
-TAB = os.environ.get("HERDR_TAB_ID", "")
-CFG = pathlib.Path.home() / ".config" / "herdr-advisor"
 LOG = pathlib.Path.home() / "Library" / "Logs" / "herdr-advisor.log"
 
-# Thrash signature: a healthy pair re-arms at most once per worker turn.
-BURST_N, BURST_WINDOW_S = 5, 600
-
+MARKER = "ADVISOR LOOP ENDED:"
 SKILL = "~/.agents/skills/herdr-advisor/ADVISOR.md"
+
+# Claude Code documents a cap of 8 consecutive blocks, Codex none, and a probe
+# showed neither enforced, so this is the only ceiling: past it the advisor is
+# released and the worker runs unwatched. Blocks older than the window do not
+# count, or the cap would be a lifetime budget that silently releases an
+# advisor which recovers from every early end.
+MAX_BLOCKS, WINDOW_S = 8, 3600
+
+REASON = (f"Re-read {SKILL} first, then resume. Your loop has not met its end "
+          f"condition, so this turn may not end: start the next pass from "
+          f"`herdr agent get` and continue.")
 
 
 def log(action, **fields):
     rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "unix": time.time(),
-           "worker_pane": PANE, "action": action}
+           "pane": PANE, "action": action}
     rec.update(fields)
     try:
         LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -56,144 +63,76 @@ def log(action, **fields):
             fh.write(json.dumps(rec) + "\n")
     except Exception:
         pass  # a hook that cannot log still must not fail the turn
-    return rec
 
 
-def herdr(*args, timeout=10):
-    """Run herdr and parse its JSON. The CLI prefixes a terminal escape, so the
-    document starts at the first brace rather than at byte zero."""
-    out = subprocess.run([HERDR, *args], capture_output=True, text=True,
-                         timeout=timeout)
-    if out.returncode != 0:
-        raise RuntimeError((out.stderr or out.stdout or "").strip()[:200])
-    i = out.stdout.find("{")
-    if i < 0:
-        raise RuntimeError("no JSON in herdr output")
-    return json.loads(out.stdout[i:])
-
-
-def recent_pokes(advisor_pane):
-    """How many pokes this pair has taken inside the burst window."""
+def consecutive_blocks():
+    """Blocks this pane has taken inside the window since it last ended a turn
+    any other way."""
     try:
         with LOG.open(encoding="utf-8") as fh:
             lines = fh.readlines()[-400:]
     except Exception:
         return 0
-    now, n = time.time(), 0
-    for line in lines:
+    n, cutoff = 0, time.time() - WINDOW_S
+    for line in reversed(lines):
         try:
             r = json.loads(line)
         except Exception:
             continue
-        if (r.get("action") == "poked" and r.get("worker_pane") == PANE
-                and r.get("advisor_pane") == advisor_pane
-                and now - float(r.get("unix", 0)) <= BURST_WINDOW_S):
-            n += 1
+        if r.get("pane") != PANE:
+            continue
+        if r.get("action") != "blocked" or float(r.get("unix", 0)) < cutoff:
+            break
+        n += 1
     return n
 
 
+def ended(last_message):
+    """True when the message's last non-empty line is the end marker, after
+    stripping the fence or emphasis a model tends to wrap it in."""
+    for line in reversed(last_message.splitlines()):
+        line = line.strip().strip("`*_ ")
+        if line:
+            return line.startswith(MARKER)
+    return False
+
+
+def herdr(*args):
+    """Run herdr and parse its JSON. The CLI prefixes a terminal escape, so the
+    document starts at the first brace rather than at byte zero."""
+    out = subprocess.run([HERDR, *args], capture_output=True, text=True,
+                         timeout=10)
+    out.check_returncode()
+    return json.loads(out.stdout[out.stdout.index("{"):])
+
+
 def main():
-    # 1. Kill switch, both granularities. Checked before any herdr call so a
-    #    paused pair costs nothing.
-    for flag, scope in ((CFG / "paused", "global"),
-                        (CFG / f"paused.{PANE}", "pair")):
-        if flag.exists():
-            log("skipped-paused", scope=scope)
-            return
+    name = herdr("agent", "get", PANE)["result"]["agent"].get("name") or ""
+    if not name.endswith("-advisor"):
+        return {}  # a worker, or an unpaired pane: not ours
 
-    agents = herdr("agent", "list")["result"]["agents"]
-    me = next((a for a in agents if a.get("pane_id") == PANE), None)
-    if me is None:
-        log("skipped-unregistered")
-        return
+    payload = json.loads(os.environ.get("HERDR_HOOK_INPUT") or "{}")
+    if ended(payload.get("last_assistant_message") or ""):
+        log("allowed-end", advisor=name)
+        return {}
 
-    name = me.get("name")
-    if not name:
-        # Unnamed pane: the advisor's name cannot be derived. Not an error --
-        # most panes on this machine are not paired workers.
-        log("skipped-unnamed")
-        return
+    n = consecutive_blocks()
+    if n >= MAX_BLOCKS:
+        log("allowed-cap", advisor=name, blocks=n)
+        herdr("notification", "show", "Herdr advisor released", "--body",
+              f"{name} ended early {n}x in an hour; its worker is now unwatched.")
+        return {}
 
-    # 2. Discovery needs name AND tab to agree. Either alone has a real false
-    #    positive -- a tab can hold unrelated agents, and names outlive the
-    #    agents that held them -- and a mis-poke lands in a stranger's pane.
-    want = f"{name}-advisor"
-    by_name = [a for a in agents if a.get("name") == want]
-    advisor = next((a for a in by_name if a.get("tab_id") == TAB), None)
-    if advisor is None:
-        log("skipped-no-advisor", worker=name, want=want,
-            name_matches=len(by_name),
-            reason="tab-mismatch" if by_name else "absent")
-        return
-
-    status = advisor.get("agent_status")
-    apane = advisor.get("pane_id")
-
-    # 3. `working` means the loop is alive and needs nothing. This same gate is
-    #    what keeps us off `herdr agent prompt`'s turn-attribution hazard: it
-    #    cannot tell whose turn a wait matched, so we only ever inject into an
-    #    agent that is not mid-turn.
-    if status not in ("idle", "done"):
-        log("skipped-advisor-busy", worker=name, advisor=want,
-            advisor_pane=apane, advisor_status=status)
-        return
-
-    # Say only what a Stop hook knows by construction: the worker just ended a
-    # turn. Its Herdr record lags at this moment (`turn` was seen one behind),
-    # so quoting its status or turn here would misreport it.
-    nudge = (
-        f"Re-read {SKILL} first, then resume. You are the read-only advisor for "
-        f"worker {name} (pane {PANE}), which has just ended a turn. "
-        f"Your next-task loop is not running -- unless your "
-        f"assignment was bounded, continue it, and keep it running across worker "
-        f"turns rather than ending your turn. "
-        f"Relay to the user only what an agent cannot answer."
-    )
-
-    # 4. Log-only until explicitly enabled.
-    if not (CFG / "enabled").exists():
-        log("would-poke", worker=name, advisor=want, advisor_pane=apane,
-            advisor_status=status, worker_turn=me.get("turn"))
-        return
-
-    prior = recent_pokes(apane)
-    try:
-        herdr("agent", "prompt", want, nudge, timeout=20)
-    except Exception as exc:
-        msg = str(exc)
-        # A dead advisor process is detected here and reported, never relaunched:
-        # the launch recipes are the read-only flags, and an agent crashing at
-        # startup would be relaunched on every worker turn with no ceiling.
-        dead = "agent_not_running" in msg or "agent_not_found" in msg
-        log("poke-failed", worker=name, advisor=want, advisor_pane=apane,
-            dead=dead, error=msg[:200])
-        if dead:
-            notify("Herdr advisor is gone",
-                   f"{want} did not answer; {name} is running unwatched.")
-        return
-
-    log("poked", worker=name, advisor=want, advisor_pane=apane,
-        advisor_status=status, worker_turn=me.get("turn"))
-
-    if prior + 1 >= BURST_N:
-        notify("Herdr advisor re-arm thrash",
-               f"{want} re-armed {prior + 1}x in {BURST_WINDOW_S // 60}m. "
-               f"Pause: touch ~/.config/herdr-advisor/paused.{PANE}")
-
-
-def notify(title, body):
-    try:
-        subprocess.run([HERDR, "notification", "show", title, "--body", body],
-                       capture_output=True, timeout=10)
-    except Exception:
-        pass
+    log("blocked", advisor=name, blocks=n + 1)
+    return {"decision": "block", "reason": REASON}
 
 
 try:
-    main()
+    result = main()
 except Exception as exc:
     log("error", error=f"{type(exc).__name__}: {exc}"[:300])
+    result = {}
+print(json.dumps(result))
 PY
 
-printf '{}'
 exit 0
