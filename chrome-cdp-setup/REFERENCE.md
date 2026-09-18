@@ -205,7 +205,11 @@ Because the process belongs to the wrapper, macOS attributes what Chrome writes 
 
 Grant it System Settings ▸ Privacy & Security ▸ App Management, or Chrome's auto-update
 stays blocked and the browser quietly goes stale. A SIP-disabled host never shows this,
-which is another way that setup hides the problem.
+which is another way that setup hides the problem. Measured 2026-09-18: within a minute
+of the grant, Keystone wrote the pending update into `Google Chrome.app` (a new
+`Versions/<n>` beside the running one, `chrome://settings/help` showing "Chrome is up
+to date" with a Relaunch button). After the grant, the running Chrome updates itself
+like any other; only the relaunch identity changes (see "Gotchas").
 
 ## Default browser
 
@@ -337,11 +341,17 @@ and waits for each, and renderers Chrome has frozen answer slowly. Measured here
 
 ## Gotchas
 
-- **Wrong-instance launches**: Spotlight, "Relaunch to update", or a link click while
-  no Chrome is running start plain `Google Chrome.app` — default profile, no flag-mode
-  CDP, and with the `chrome://inspect` toggle on, port 9222 held in approval mode. Quit
-  it and relaunch from the Dock icon. While the CDP instance IS running, link clicks
-  from other apps route to it correctly (LaunchServices targets the running process).
+- **Wrong-instance launches**: Spotlight, or a link click while no Chrome is running,
+  starts plain `Google Chrome.app` — default profile, no flag-mode CDP, and with the
+  `chrome://inspect` toggle on, port 9222 held in approval mode. Quit it and relaunch
+  from the Dock icon. While the CDP instance IS running, link clicks from other apps
+  route to it correctly (LaunchServices targets the running process).
+- **"Relaunch to update" is not a wrong-instance launch**, only a wrong-identity one.
+  Chrome re-execs itself with its own command line (flags kept, reordered, `--restart`
+  appended), so CDP on the clone stays up — but LaunchServices now sees a process from
+  `Google Chrome.app`: a second Dock tile until the next quit. Quit and relaunch from
+  the Dock. `verify_cdp.sh` matches the port flag anywhere in argv for this reason; an
+  earlier build only matched it first and misreported this state as `APPROVAL MODE`.
 - **Never run both instances simultaneously**: sessions diverge (sites may rotate
   cookies and log one out) and duplicated extensions (e.g. claude-in-chrome) open
   duplicate connections.

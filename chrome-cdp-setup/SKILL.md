@@ -85,13 +85,16 @@ Security) or Chrome's auto-update stays blocked. See REFERENCE.md "Which app is 
 
 ## Rules that prevent breakage
 
-- Always start Chrome from the Dock icon. Spotlight, Chrome's "Relaunch to update", or
-  a link click while Chrome is closed all launch the non-CDP default-profile instance —
-  quit it and relaunch from the Dock. With the `chrome://inspect` toggle on, that
-  instance also grabs port 9222 in approval mode: `/json/version` answers 404 and every
-  connection prompts. `verify_cdp.sh` names this state. `set_default_browser.sh` takes
-  the link click off that list by making the wrapper the default browser (one macOS
-  consent dialog).
+- Always start Chrome from the Dock icon. Spotlight, or a link click while Chrome is
+  closed, launches the non-CDP default-profile instance — quit it and relaunch from the
+  Dock. With the `chrome://inspect` toggle on, that instance also grabs port 9222 in
+  approval mode: `/json/version` answers 404 and every connection prompts.
+  `verify_cdp.sh` names this state. `set_default_browser.sh` takes the link click off
+  that list by making the wrapper the default browser (one macOS consent dialog).
+- Chrome's own "Relaunch to update" keeps the flags, so CDP stays up, but the process
+  comes back as `Google Chrome.app`: a second Dock tile until the next quit, and the
+  Dock tile then no longer names the wrapper. Quit and relaunch from the Dock when
+  convenient (REFERENCE.md "Which app is running").
 - Never run both instances at once (session divergence, duplicate extension connections).
 - The CDP server takes a few seconds after launch: poll with
   `curl --retry 30 --retry-delay 1 --retry-all-errors`.

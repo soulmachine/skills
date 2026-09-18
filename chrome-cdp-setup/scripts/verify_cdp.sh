@@ -19,9 +19,11 @@ LISTEN=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
 LISTEN_PID=$(lsof -nP -t -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | head -1 || true)
 
 echo "--- chrome main process launched with --remote-debugging-port=$PORT ---"
-# Helpers repeat the flag; only the main process's command starts with the Chrome binary.
-# Match the exact port, or a wrapper on 9222 would count as "flagged" for any port checked.
-FLAGGED=$(ps -axo pid=,command= | grep -E -- "MacOS/Google Chrome --remote-debugging-port=$PORT( |\$)" | grep -v grep || true)
+# Helpers repeat the flag; only the main process's command starts with the Chrome binary
+# (helpers are "MacOS/Google Chrome Helper"). The flag can sit anywhere in argv: Chrome's
+# own "Relaunch to update" keeps the flags but reorders them. Match the exact port, or a
+# wrapper on 9222 would count as "flagged" for any port checked.
+FLAGGED=$(ps -axo pid=,command= | grep -E -- "MacOS/Google Chrome .*--remote-debugging-port=$PORT( |\$)" | grep -v grep || true)
 [ -n "$FLAGGED" ] && echo "$FLAGGED" || echo "(no flagged Chrome process)"
 FLAGGED_PID=$(echo "$FLAGGED" | awk 'NR==1{print $1}')
 
