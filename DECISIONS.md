@@ -608,3 +608,45 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** A Dock still starting when Chrome launches infers the app from the process and shows a session-only second tile; a Dock restarted while Chrome runs does the same. Verified single tile after the tile-swap path with the wait in place.
 **Outcome:** applied
 **Ref:** (pending)
+
+## Q59 — affix-domains/x-handle — deviation
+
+**Question:** The X (Twitter) handle check could go through the DomainHunter X API app provisioned in July (`xurl` / the `xapi` MCP, v2 `users/by/username`) or through X's own unauthenticated sign-up availability check. Which one?
+**Options considered:** v2 API via the provisioned app / `x.com/<name>` HTTP status / X's sign-up availability endpoint (`api.x.com/i/users/username_available.json`)
+**Chosen:** The sign-up availability endpoint, with X's banned-word verdicts (`is_banned_word`, `contains_banned_word`) folded into the existing `RESERVED` verdict rather than a new label, so the GitHub and X columns in step 5 mean the same thing.
+**Decided-by:** agent
+**Justification:** Measured 2026-09-18: only the sign-up check answers the actual question ("can this be registered now?"). Both alternatives report a held or banned handle as free — `x.com/matearoo` 404s while sign-up refuses the name — which is the same false-available hole `check_github.sh` was built to avoid. The sign-up check also needs no token and spends no API credits. Cheapest to reverse: the script's output contract matches its sibling, so swapping the backend touches one function.
+**Outcome:** assumed
+**Ref:** (pending)
+
+## Q60 — affix-domains/x-handle — deviation
+
+**Question:** Which backend is the verdict of record for the X handle check, and what becomes of the sign-up availability endpoint chosen in Q59?
+**Options considered:** sign-up endpoint alone (Q59) / DomainHunter v2 API app (profile-exists semantics; answered `402 credits depleted` on 2026-09-18) / twitter-cli on the user's Chrome session alone / twitter-cli first, sign-up endpoint for the no-profile names
+**Chosen:** twitter-cli first, as the TAKEN authority (a hollow `UserUnavailable` profile counts as TAKEN); the sign-up endpoint second, for the no-profile names only, as the FREE/RESERVED/INVALID authority. Local `^[A-Za-z0-9_]{5,15}$` screen before any request; personal Chrome session at two lanes; preflight of `twitter status` plus a known-taken control; a missing twitter-cli is installed by the script with `uv tool install twitter-cli`; installed but not logged in degrades to the sign-up stage over every name with one stderr line; unresolved names stay a plain UNKNOWN; one script, same output contract as `check_github.sh`.
+**Decided-by:** human
+**Justification:** Grill of 2026-09-18: the user chose twitter-cli as primary over the agent's recommendation of the sign-up endpoint (Q1), then accepted the agent's recommendations on every downstream question (Q5–Q17). twitter-cli's `not_found` cannot separate free from held (`matearoo` is not found there and refused by sign-up), so the sign-up check remains the only source that can promote a no-profile name to FREE.
+**Outcome:** applied
+**Ref:** (pending)
+**Supersedes:** Q59 — the sign-up endpoint becomes the second stage rather than the sole source.
+
+## Q61 — affix-domains/x-handle — deviation
+
+**Question:** The grill's confirmed mapping made any twitter-cli error other than `not_found` (`rate_limited`, `network_error`, `not_authenticated`) a plain UNKNOWN for that name. Keep that, or fall through to the sign-up stage?
+**Options considered:** UNKNOWN as confirmed / fall through to stage 2 / fall through behind a circuit breaker
+**Chosen:** Fall through. Stage 1 decides only TAKEN; every other outcome goes to the sign-up stage, which is authoritative on its own. No circuit breaker: twitter-cli retries a 429 itself (5/10/20 s) before surfacing it, so a second sweep inside the session window runs slower, not emptier.
+**Decided-by:** advisor
+**Justification:** The advisor called it for the user (herdr-advisor pair of 2026-09-18; the user sees it in the diff). A per-name fall-through is the same degrade the user chose for a failed preflight (Q60), and its worst case is a sign-up-only sweep, 66 of the ~250 budget — which the sign-up-only script had already proved correct. The case it fixes: a second sweep inside fifteen minutes trips stage 1 at ~95 and would otherwise print ~30 UNKNOWNs.
+**Outcome:** applied
+**Ref:** (pending)
+**Supersedes:** Q60 — the per-name error mapping only; everything else in Q60 stands.
+
+## Q62 — affix-domains/x-handle — deviation
+
+**Question:** The sign-up endpoint's answer for a few ordinary-looking names flickers between `available` and `is_banned_word` across serial queries on a calm endpoint (`mateora`, `quickmate`), which the earlier "soft-deny near the limit" paragraph — the one the grill said to keep whole — had attributed to load. Where does the FREE re-check live, and what replaces that paragraph?
+**Options considered:** doc instruction only (agent re-checks) / script re-checks inside each lane / script re-checks in a serial pass after the sweep
+**Chosen:** A post-sweep pass in the script: buffer the lane output, re-query each FREE once, serially, and print the re-check verdict verbatim — FREE only when it repeats, otherwise whatever was answered, nothing forced to RESERVED. The soft-deny paragraph is replaced by a stability paragraph recording the measured flicker, including that `mateor` (taken) once answered `is_banned_word` in a run that was drawing 429s; the shortlist re-check before claiming stays.
+**Decided-by:** advisor
+**Justification:** The advisor called it for the user. New evidence overrode the grill's "keep the soft-deny paragraph whole": the flicker was measured with nothing else in flight, so it is not a load effect, and which answer is true cannot be settled without registering the name. A pass after the sweep gives the gap for free under exactly the measured condition, costs about five requests, and leaves the output contract and ordering untouched.
+**Outcome:** applied
+**Ref:** (pending)
