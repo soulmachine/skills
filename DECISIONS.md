@@ -527,3 +527,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** The review's estimate held: the port removes lines without moving a decision, and the risk Q49 named, re-verifying a live-verified script, is paid in full by re-running the fifteen-row live matrix through the committed `harness/launch-test.sh` against `watchdog.py` (results in the Ref). A redesign of the edge would reopen Q48 for no finding that asked for it.
 **Outcome:** applied
 **Ref:** herdr-advisor/watchdog.py (replaces watchdog.sh), watchdog_selftest.py, SKILL.md (recipe), HARNESS-CLIS.md (legend), harness/launch-test.sh. Commit: f181959. Live matrix 2026-09-18 02:08–02:25: 13 of 15 rows re-prompted once and released on the name clear (pi, claude, opencode, omp, kimi, agy, devin, cline, hermes, qodercli, amp, cursor, grok; grok on its second run, its turn counter stayed 0 on the first); kiro turn 0 throughout as its Gap says; codex out on quota until 2026-09-23, watchdog still re-prompted once and exited.
+
+## Q51 — herdr-advisor/chooser-options — gate-resolution
+
+**Question:** Review finding 6, deferred by Q49 and Q50: the chooser's second question (harness CLI) depends on the first (model), which one `AskUserQuestion` dialog cannot express, so every harness option carried a "for model X" caveat and the user answered through Other. One combined model×harness question, or keep the two-question shape from grill Q5?
+**Options considered:** keep two questions and make each harness option name the model it would run / one combined question of at most four model×harness pairs / leave as is
+**Chosen:** The first. Each harness option names its model (`codex: gpt-6-astra`), and a harness option naming a different model than question 1's choice is the user's answer to both. Two questions stay, so the model list keeps its four rows and the harness list its four.
+**Decided-by:** user
+**Justification:** A combined question caps the choice at four pairs where two questions offer up to sixteen, and reopens a grilled decision for a display problem; naming the model in the option is the display fix alone.
+**Outcome:** applied
+**Ref:** herdr-advisor/SKILL.md (Choose the advisor, question 2). Commit: 80c87cc.
