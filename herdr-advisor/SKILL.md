@@ -1,6 +1,6 @@
 ---
 name: herdr-advisor
-description: Pair a Herdr worker with one advisor from another model family. Use when the Advisor Model rule applies or the user asks for a Herdr advisor to review decisions and lead the worker through its remaining tasks. Do not invoke while a grilling session is still open.
+description: Pair a Herdr worker with one advisor from another model family. The advisor answers questions on the user's behalf to unblock the worker and leads it to its next task, by accepting its prompt suggestion or sending it text: a worker "still waiting on your go" gets `go`. Use when the Advisor Model rule applies or the user asks for a Herdr advisor. Do not invoke while a grilling session is still open.
 ---
 
 # Herdr advisor
@@ -22,9 +22,10 @@ ordinary work and the rule governs it normally.
 
 - **Worker**: you, the main Herdr agent doing the user's work. Only you create
   the pair, and you make every change. Verify advice before acting on it.
-- **Advisor**: a read-only leaf agent. It answers your questions, decides on
-  the user's behalf and leads you to the next task; it never edits, it tells
-  you what to change.
+- **Advisor**: a read-only leaf agent. It answers your questions on the user's
+  behalf to unblock you, and leads you to your next task by accepting your
+  prompt suggestion or sending you text; it never edits, it tells you what to
+  change.
 
 Read `~/.agents/skills/herdr/SKILL.md` before operating on agents; this
 workflow authorizes that use of Herdr. Require `HERDR_ENV=1`: outside Herdr,
