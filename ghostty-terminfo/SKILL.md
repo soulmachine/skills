@@ -92,6 +92,8 @@ $ ssh HOST 'infocmp -D'
 /usr/share/terminfo
 ```
 
+`infocmp -D` lists only directories that exist. On a host that has never had a user entry it prints `/usr/share/terminfo` alone, yet ncurses still searches `~/.terminfo` — the line appears as soon as `tic` creates the directory, so a normal install is still the fix.
+
 An entry anywhere else — most often `/usr/local/share/terminfo` — resolves only if `TERMINFO_DIRS` points at it, and that is exported per-shell. So the same host can pass a check under one shell and fail under another:
 
 ```bash
