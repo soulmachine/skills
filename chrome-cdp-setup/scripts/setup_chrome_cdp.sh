@@ -49,9 +49,16 @@ else
     cp -Rc "$SRC" "$UDD" 2>/dev/null || { rm -rf "$UDD"; cp -R "$SRC" "$UDD"; }
     find "$UDD" -maxdepth 1 -name 'Singleton*' -delete
 fi
-LAST_USED=$(python3 -c "import json; print(json.load(open('$UDD/Local State')).get('profile', {}).get('last_used', 'Default'))")
-[ -f "$UDD/$LAST_USED/Preferences" ] || { echo "ERROR: clone missing $LAST_USED/Preferences" >&2; exit 1; }
-echo "    clone OK (active profile: $LAST_USED)"
+if [ -f "$UDD/Local State" ]; then
+    LAST_USED=$(python3 -c "import json; print(json.load(open('$UDD/Local State')).get('profile', {}).get('last_used', 'Default'))")
+    [ -f "$UDD/$LAST_USED/Preferences" ] || { echo "ERROR: clone missing $LAST_USED/Preferences" >&2; exit 1; }
+    echo "    clone OK (active profile: $LAST_USED)"
+else
+    # Chrome never ran on this account (fresh install, headless host): nothing to
+    # carry over, and Chrome creates Default in the clone on first launch.
+    LAST_USED=Default
+    echo "    source profile was never used; Chrome starts fresh in $LAST_USED"
+fi
 
 echo "==> Building wrapper app: $APP"
 # A tiny Mach-O that execs Chrome. Mach-O, because with SIP on macOS 26 refuses to
