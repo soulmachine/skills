@@ -29,7 +29,9 @@ with sync_playwright() as p:
         print(f"      - {pg.url[:70]}")
 
     page = ctx.new_page()
-    page.goto("https://example.com", wait_until="load", timeout=20000)
+    # Own markup, not a live site: example.com dropped its <h1> in 2026 and asks
+    # not to be used for testing, which broke the DOM step below.
+    page.set_content("<title>CDP smoke test</title><h1>Original</h1><p>Original.</p>")
     print(f"[3] opened own tab -> title: {page.title()!r}")
 
     page.evaluate(
