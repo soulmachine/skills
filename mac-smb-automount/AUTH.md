@@ -16,6 +16,13 @@ Healthy signature: `CopyAppleIDs: Deferring to sharingd` → `CopySecIdentity: D
 
 ## Branches
 
+**A "Connect As" dialog with no `CopyAppleIDs` line at all; `NetAuthSysAgent` logs `isKnownServer 0`** — the client has never connected to this server, so NetAuth asks how to connect instead of trying the Apple ID (seen on a fresh macOS 27 client, 2026-10-08; restarting `sharingd` did not help). `pkill NetAuthAgent`, write the known-server entry NetAuth itself writes after a first connect, then repeat step 2; the log then shows `isKnownServer 1` followed by the healthy signature:
+```
+h=<host>; f=~/Library/Group\ Containers/group.com.apple.NetworkAuthorization.ServerMarkers/serverMarkers.plist
+[ -e "$f" ] || { plutil -create xml1 "$f" && plutil -insert _migrationVersion -integer 2 "$f"; }
+plutil -insert "${h//./\\.}" -bool true "$f"    # plutil key paths split on dots
+```
+
 **Stops after `CopyAppleIDs`, then a password prompt** — stale `sharingd` (seen after 22 days of uptime). `sudo killall sharingd` (auto-relaunched; a reboot does the same), then repeat step 2. The first successful mount mints the cache and the agent's normal URLs work from then on.
 
 **`mount_smbfs: server rejected the connection: Authentication error` with a password you know is right** — confirm the password on the server: `dscl /Local/Default -authonly <user> '<pw>'`. If valid, the server account has no SMB-NT hash: `sudo dscl . -read /Users/<user> AuthenticationAuthority` shows `HASHLIST:<SALTED-SHA512-PBKDF2,SRP-…>` without `SMB-NT`, so the server accepts SMB by Kerberos only. That is fine as long as the Apple-ID branch works; fix the client side first. Enabling password SMB on the server (System Settings → General → Sharing → File Sharing → ⓘ → Options → tick the account) is the last resort: it stores a weaker NT hash and applies to every client.
