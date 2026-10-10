@@ -53,7 +53,7 @@ interactive re-login is possible when an account needs it).
 
 ```bash
 scripts/push-claude-accounts ~/claude-accounts.json \
-    mac-mini-m2 archs-mac-mini 10.0.0.42
+    mac-mini-m2 mac-studio-m3 10.0.0.42
 ```
 
 Per machine this: uploads the file to `/tmp/claude-accounts.json` (mode 600), installs

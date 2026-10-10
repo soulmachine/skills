@@ -45,6 +45,8 @@ is_local() {
 ok=0; fail=0; failed_hosts=""
 for h in "$@"; do
     echo "===== $h ====="
+    # archs-mac-mini is ArchAuto's machine and must never hold Frank's Claude accounts (coding-agent Q338).
+    case "$h" in archs-mac-mini|archs-mac-mini.*) echo "SKIPPED: ArchAuto asset"; continue ;; esac
     if is_local "$h"; then
         install -d "$HOME/.local/bin" || { fail=$((fail+1)); failed_hosts="$failed_hosts $h"; continue; }
         if [ ! -x "$HOME/.local/bin/sync-claude-accounts" ] || [ "${FORCE_INSTALL:-0}" = "1" ]; then
