@@ -9,7 +9,7 @@ Prerequisite: `gh` authenticated with `repo` scope, plus a local clone of the fo
 
 ## Make a fork private
 
-GitHub now converts a fork's visibility in place — historically this was blocked, which is why mirror-clone workarounds still circulate; you don't need them.
+GitHub now converts a fork's visibility in place — historically this was blocked, which is why mirror-clone workarounds still circulate; you don't need them. The change **detaches the repo from the fork network**: afterwards `gh repo view <owner>/<fork> --json isFork,parent` reports `false` / `null`, so GitHub's fork-only sync (`gh repo sync`, the merge-upstream API, the web "Sync fork" button) stops working. Syncing then runs through plain git, below.
 
 ```
 gh repo edit <owner>/<fork> --visibility private --accept-visibility-change-consequences
@@ -19,8 +19,11 @@ gh repo edit <owner>/<fork> --visibility private --accept-visibility-change-cons
 
 Completion: `gh repo view <owner>/<fork> --json visibility,isPrivate` reports `PRIVATE` / `true`.
 
-Tell the user two consequences:
-- While private, you can't open PRs from the fork to the public parent. Reverse with `--visibility public --accept-visibility-change-consequences` when you want to contribute upstream.
+For about two minutes after the change, GitHub locks the repo and API writes return `403 Repository has been locked`. Wait and retry.
+
+Tell the user three consequences:
+- The repo is no longer a fork, so you can't open PRs from it to the parent. Making it public again does not rejoin the fork network. To contribute upstream, push the branch to a fresh fork of the parent and open the PR from there.
+- `gh repo sync` and the "Sync fork" button no longer work. Sync with git as shown below.
 - Anyone who could see the public fork now needs to be added as a collaborator.
 
 If the direct change is ever rejected (e.g. org policy), fall back to the documented mirror method: create a new private repo, then `git clone --bare` the fork and `git push --mirror` into it.
@@ -42,11 +45,11 @@ Completion: `git remote -v` shows `upstream` fetch plus push URL `DISABLE`.
 ```
 git fetch upstream
 git checkout master
-git merge upstream/master
+git merge --ff-only upstream/master
 git push origin master
 ```
 
-One-liner alternative (relies on the same **clean mirror** condition): `gh repo sync <owner>/<fork> -b master` then `git pull origin master`.
+To update the GitHub repo without touching the local checkout (for example from a scheduled job), push the fetched ref straight to it: `git fetch upstream && git push origin upstream/master:master`. A plain push succeeds only as a fast-forward, so it never overwrites commits of your own. Do not use `gh repo sync` here: the repo is no longer a fork, so it fails with `can't determine source repository … because repository is not fork`.
 
 Completion: `git rev-list --left-right --count master...upstream/master` prints `0	0` (local neither ahead nor behind).
 
