@@ -92,6 +92,8 @@ Post-snapshot addition: **hyper-** was added to the SKILL.md catalog at **#22** 
 | 37 | 37 = | **-oo** | 4 (0·2·2) | 0 (0) | — |
 | 38 | 38 = | **-aroo** | 4 (0·2·2) | 0 (0) | — |
 
+Post-snapshot addition: **-x** was added to the SKILL.md catalog at **#36** (scored 5 = 0·3·2 by the same formula, no corpus evidence — it was never counted in this 433-company snapshot). Ranks 36–38 above therefore sit one row lower in SKILL.md.
+
 ## Not in the catalog (from the same corpus)
 
 - **-ai** (trailing "AI" word) — the era's dominant suffix by far (~60 companies, e.g. OpenAI, xAI,

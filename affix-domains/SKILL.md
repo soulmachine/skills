@@ -27,7 +27,7 @@ description: Attach popular brand prefixes/suffixes to a seed word and check ava
 
    With many candidates, pass them on stdin instead: `printf '%s\n' "${cands[@]}" | … --stdin`.
 
-   Pass **bare names, not domains** — the script forms `name.tld` itself. Output is one `<domain>\tFREE|TAKEN|UNKNOWN` line per lookup. A full 68-affix escalated sweep is ~550 lookups and takes roughly 30–60s, paced by the serial `.app` path.
+   Pass **bare names, not domains** — the script forms `name.tld` itself. Output is one `<domain>\tFREE|TAKEN|UNKNOWN` line per lookup. A full 69-affix escalated sweep is ~560 lookups and takes roughly 30–60s, paced by the serial `.app` path.
 
    **`UNKNOWN` is not `FREE`.** It means the registry never gave a clean answer. Never show it as available; re-run those few names, and if they stay UNKNOWN, say so explicitly.
 
@@ -214,9 +214,10 @@ auto-added: the era's dominant suffix is a trailing "AI" word (~60 hot companies
 | 33 | -ex | Vowel endings | 0 | sharp, techy (FedEx) |
 | 34 | -y | Short & modern | 0 | cute, casual (Etsy) |
 | 35 | -ate | Verbifier | 0 | automate/activate (Automate) |
-| 36 | -zilla | Stylized & meme | 0 | monster-big (Mozilla) |
-| 37 | -oo | Vowel endings | 0 | round, cute (Yahoo) |
-| 38 | -aroo | Stylized & meme | 0 | bouncy-cute (Kangaroo) |
+| 36 | -x | Short & modern | 0 | edgy, techy (Codex) |
+| 37 | -zilla | Stylized & meme | 0 | monster-big (Mozilla) |
+| 38 | -oo | Vowel endings | 0 | round, cute (Yahoo) |
+| 39 | -aroo | Stylized & meme | 0 | bouncy-cute (Kangaroo) |
 
 ## Rules
 
