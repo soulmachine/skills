@@ -660,13 +660,3 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** The confirmed goal ended at "diff shown, no commit"; the user then committed by their own prompt (provenance `human`), and the push prompt arrived with provenance `api`, the advisor accepting the worker's prompt suggestion (herdr-advisor pair of 2026-09-18). A plain push to the user's own repo is within their permissions and reversible by a follow-up commit; it is recorded here because the user did not make the call themselves.
 **Outcome:** applied
 **Ref:** (pending)
-
-## Q64 — affix-domains/x-suffix — gate-resolution
-
-**Question:** Where does the new -x suffix rank in the catalog, and how is it scored and described?
-**Options considered:** rank by the 2E·F·M formula like other rows / append at the bottom / give it a corpus-evidence score
-**Chosen:** Score 5 (E=0, F=3, M=2), rank #36 at the end of the score-5 band after -ate; category Short & modern; exemplar Codex. Ranking reference gets a post-snapshot note.
-**Decided-by:** agent
-**Justification:** Follows the hyper- post-snapshot precedent (commit 7f95d73): same formula, no corpus evidence claimed, placed at the end of its score band. F and M values are my judgment (welds to most seeds, but reads harsh after some consonants; weak meaning).
-**Outcome:** assumed
-**Ref:** (pending)
