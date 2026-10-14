@@ -670,3 +670,14 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** The user asks for this in prose ("distill this conversation into a prompt") as often as by slash command, and a user-invoked skill would miss the prose form. The cost is one short always-loaded description.
 **Outcome:** applied
 **Ref:** (pending)
+
+## Q65 — distill-prompt — deviation
+
+**Question:** The user rewrote `distill-prompt` by hand: user-invoked, and a body that ranks the goal ("what") above the how and the why. Keep that direction when polishing?
+**Options considered:** keep the user's direction / restore the five-step version
+**Chosen:** Keep it. The skill is user-invoked, and the distilled prompt carries outcome, taste and undiscoverable facts, leaving steps and commands to the fresh session.
+**Decided-by:** user
+**Justification:** The user made both calls in their own edit. Their reason: current models find the how themselves, so the prompt should spend its words on the goal and on taste.
+**Outcome:** applied
+**Ref:** (pending)
+**Supersedes:** Q64
