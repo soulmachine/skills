@@ -660,3 +660,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** The confirmed goal ended at "diff shown, no commit"; the user then committed by their own prompt (provenance `human`), and the push prompt arrived with provenance `api`, the advisor accepting the worker's prompt suggestion (herdr-advisor pair of 2026-09-18). A plain push to the user's own repo is within their permissions and reversible by a follow-up commit; it is recorded here because the user did not make the call themselves.
 **Outcome:** applied
 **Ref:** (pending)
+
+## Q64 — distill-prompt — tradeoff
+
+**Question:** Make `distill-prompt` model-invoked (a description the agent can match) or user-invoked (`disable-model-invocation: true`, zero context load)?
+**Options considered:** model-invoked / user-invoked
+**Chosen:** Model-invoked, with a two-sentence description led by the word "distill".
+**Decided-by:** agent
+**Justification:** The user asks for this in prose ("distill this conversation into a prompt") as often as by slash command, and a user-invoked skill would miss the prose form. The cost is one short always-loaded description.
+**Outcome:** applied
+**Ref:** (pending)
