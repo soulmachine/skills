@@ -681,3 +681,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Outcome:** applied
 **Ref:** (pending)
 **Supersedes:** Q64
+
+## Q66 — distill-prompt — irreversible-action
+
+**Question:** Where does `distill-prompt` live now that OpenSWE has one repo for its published skills?
+**Options considered:** move it to `OpenSWE/skills` and remove it here / keep a copy in both
+**Chosen:** Moved to `OpenSWE/skills` as `skills/distill-prompt/` (that repo's Q7), and removed here. Q64 and Q65 still describe the skill; its later decisions go in that repo's journal.
+**Decided-by:** human
+**Justification:** Two real skills of the same name make `agent-sync adopt` fail the provisioning play, and one source of truth is the point of the move. The fleet's Commons links now point into `~/github.com/OpenSWE/skills/skills/`.
+**Outcome:** applied
+**Ref:** `OpenSWE/skills` 76c4377
