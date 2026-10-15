@@ -26,47 +26,20 @@ description: Attach popular brand prefixes/suffixes to a seed word and check ava
 
    Every lane checks names in file order, so when a quota trips late in a run its UNKNOWNs land on the lowest-ranked names.
 
-3. **Fan out the sweep: one lane per rate-limit pool, all lanes at once.** A **lane** is one bundled-script call over all of `$RUN/names`; the scripts hold the per-TLD endpoint, per-host parallelism and retry rules. The lanes:
-
-   | Mode | Lane | Output file |
-   |---|---|---|
-   | both | `check_github.sh` | `$RUN/github.tsv` |
-   | both | `check_x.sh` | `$RUN/x.tsv` |
-   | `.com`-only | `check_domains.sh --tlds com` | `$RUN/dom-com.tsv` |
-   | escalated | `check_domains.sh --tlds <T>`, one lane each for `com,net` · `cc` · `org` · `ai,io` · `app` · `co` | `$RUN/dom-<T>.tsv` |
-
-   A lane is a quota pool: `.com`/`.net` share Verisign's host and `.ai`/`.io` share Identity Digital's, so each pair stays one lane. Two lanes on one pool add no speed and trip its quota sooner. GitHub and X check **every** candidate, not only domain survivors, so they run beside the domain lanes instead of after them; one sweep fits inside both budgets. The sweep takes as long as its slowest lane, usually X at about one name a second.
-
-   **Dispatch one subagent per lane, all in one message**, so they run concurrently. The work is mechanical, so the smallest, fastest model your harness offers will do. Give each this brief, filled in, with the scripts' absolute path (`~/.claude/skills/affix-domains/scripts/`):
-
-   > Run one lane of an affix-domains sweep and nothing else.
-   > 1. Run `<script> [--tlds <T>] --stdin < <RUN>/names > <RUN>/<output file>`.
-   > 2. Re-run the names on UNKNOWN lines once, one TLD at a time, appending to the same file with `>>`. Skip the re-run for a TLD that is mostly UNKNOWN: that is a quota block, and a retry inside this session does not clear it.
-   > 3. Reply in at most three lines: the count per verdict, and each lookup still UNKNOWN. Leave the file's contents out of the reply.
-
-   Without subagents, run the same lanes as background jobs in one shell call, then re-run UNKNOWNs per step 2 of the brief:
+3. **Run the sweep: every lane at once, as background jobs.**
 
    ```bash
-   S=~/.claude/skills/affix-domains/scripts
-   for t in com,net cc org ai,io app co; do   # .com-only mode: just com
-     "$S/check_domains.sh" --tlds "$t" --stdin < "$RUN/names" > "$RUN/dom-$t.tsv" &
-   done
-   "$S/check_github.sh" --stdin < "$RUN/names" > "$RUN/github.tsv" &
-   "$S/check_x.sh"      --stdin < "$RUN/names" > "$RUN/x.tsv" &
-   wait
+   ~/.claude/skills/affix-domains/scripts/sweep.sh com "$RUN"         # .com-only mode
+   ~/.claude/skills/affix-domains/scripts/sweep.sh escalated "$RUN"   # full TLD set
    ```
 
-4. **Merge the lanes** once every lane has reported:
+   A **lane** is one rate-limit pool, checked by one bundled script over all of `$RUN/names`: `com,net` · `cc` · `org` · `ai,io` · `app` · `co` (`com` alone in `.com`-only mode) · GitHub · X. `.com`/`.net` share Verisign's host and `.ai`/`.io` share Identity Digital's, so each pair stays one lane: two jobs on one pool add no speed and trip its quota sooner. GitHub and X check **every** candidate, not only domain survivors, so they run beside the domain lanes instead of after them; one sweep fits inside both budgets. Each lane re-runs its UNKNOWN lookups once as soon as it ends, and skips a TLD that came back mostly UNKNOWN, with a `sweep:` line on stderr naming it. The sweep takes as long as its slowest lane, usually X at about one name a second.
 
-   ```bash
-   ~/.claude/skills/affix-domains/scripts/merge.sh "$RUN"
-   ```
+   It prints one line per name, in rank order: `<name>\t<FREE TLDs, best first>\t<UNKNOWN TLDs>\t<github>\t<x>`, with `-` for none. The raw lane files stay in `$RUN`; `scripts/merge.sh "$RUN"` reprints the table.
 
-   One line per name, in rank order: `<name>\t<FREE TLDs, best first>\t<UNKNOWN TLDs>\t<github>\t<x>`, with `-` for none. A re-run's definite verdict replaces an earlier UNKNOWN.
+   **`UNKNOWN` is not `FREE`.** It means the registry never gave a clean answer. Never show it as available; if a lookup is still UNKNOWN after the sweep, say so explicitly.
 
-   **`UNKNOWN` is not `FREE`.** It means the registry never gave a clean answer. Never show it as available; if a lookup is still UNKNOWN after its lane's re-run, say so explicitly.
-
-   The GitHub and X columns check the **name**, not the domain — a brand needs its handles as much as the domain: GitHub is where the code will live, X is where it will be announced. For both, only `FREE` is claimable. The GitHub verdicts:
+4. **Read the GitHub and X columns.** They check the **name**, not the domain — a brand needs its handles as much as the domain: GitHub is where the code will live, X is where it will be announced. For both, only `FREE` is claimable. The GitHub verdicts:
 
    - **`TAKEN`** — users and orgs share **one** namespace, so a name some *person* holds is exactly as gone as one an org holds.
    - **`RESERVED`** — GitHub's own route namespace (`settings`, `new`, `about`, `explore`, `login`…). Never claimable, and it is the trap: these **404 on the API** and only reveal themselves as a 30x redirect on the web.
@@ -80,7 +53,7 @@ description: Attach popular brand prefixes/suffixes to a seed word and check ava
 
 5. **Surface the survivors.** In `.com`-only mode, list one line per free `.com`, in catalog rank order (note each name's category).
 
-   In escalated mode the raw cross-product is far too long to dump. Instead, keep `merge.sh`'s order: names by their affix's catalog rank, each name's free TLDs in this preference order:
+   In escalated mode the raw cross-product is far too long to dump. Instead, keep the sweep's order: names by their affix's catalog rank, each name's free TLDs in this preference order:
 
    `.com` > `.ai` > `.io` > `.co` > `.net` > `.org` > `.app` > `.cc`
 
@@ -244,7 +217,7 @@ auto-added: the era's dominant suffix is a trailing "AI" word (~60 hot companies
 
 - **Live lookups only** — never claim availability from cached knowledge or prior turns of this conversation. Domains, org names and handles get registered between checks.
 - **Only an explicit negative means available.** RDAP `404`, WHOIS `DOMAIN NOT FOUND`, `github.com/<name>` returning `404`, or X's sign-up check answering `"reason":"available"`. Anything else — `429`, `5xx`, a timeout, an empty body, a `30x` — is `UNKNOWN` or `RESERVED`, reported as such and never as free.
-- **Use the bundled scripts rather than hand-rolled `curl` or a bare `twitter user`.** `check_domains.sh` for TLDs, `check_github.sh` for the org name, `check_x.sh` for the X handle. The per-TLD hosts, the `.co` WHOIS special case, the `.app` retry loop, GitHub's reserved-name redirect, and X's two-stage split are all easy to get wrong in a way that fails silently toward false-available.
+- **Use the bundled scripts rather than hand-rolled `curl` or a bare `twitter user`.** `sweep.sh` runs the other three: `check_domains.sh` for TLDs, `check_github.sh` for the org name, `check_x.sh` for the X handle. The per-TLD hosts, the `.co` WHOIS special case, the `.app` retry loop, GitHub's reserved-name redirect, and X's two-stage split are all easy to get wrong in a way that fails silently toward false-available.
 - **The escalated TLD set is fixed**: `.com .net .org .ai .io .co .app .cc`. If the user wants a TLD outside it, check it explicitly and say the endpoint was not pre-verified.
 - **A free domain with a taken org or handle is still a result** — report it, marked, rather than dropping it. The three namespaces are independent and the user may not care equally about all of them; suppressing part of the picture makes that call for them.
 - **Never report a GitHub name as available on the strength of an API 404, nor an X handle on the strength of an `x.com/<name>` 404, a v2 API not-found, or a twitter-cli `not_found` alone** — see the reserved-name traps above. GitHub's web endpoint and X's sign-up check, or nothing.

@@ -711,3 +711,14 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** The gate put X, the slowest lane at about one name a second, after the domain sweep. A full candidate list (about 70 names) fits inside X's documented stage-1 (~95 per 15 min) and stage-2 (~250 per IP) budgets. In escalated mode nearly every name survives anyway. The cost is some X and GitHub lookups for names whose `.com` is taken in `.com`-only mode.
 **Outcome:** applied
 **Ref:** (pending)
+
+## Q69 — interactive/affix-domains-parallel — deviation
+
+**Question:** Should the sweep's lanes run as subagents or as background jobs?
+**Options considered:** one subagent per lane / background jobs in one script
+**Chosen:** Background jobs. `scripts/sweep.sh` starts every lane at once, re-runs each lane's UNKNOWN lookups once as soon as that lane ends, skips a TLD that came back mostly UNKNOWN, and then prints `merge.sh`'s table. The lanes are still one per rate-limit pool, as in Q67.
+**Decided-by:** human
+**Justification:** Frank asked for background jobs after the comparison showed they look up at the same speed. A subagent only wraps the same script call, and the one measured lane cost 8.4 s and about 37,500 tokens to do about a second of work.
+**Outcome:** applied
+**Ref:** (pending)
+**Supersedes:** Q67 — the lane split stands; only the subagent dispatch is replaced.
