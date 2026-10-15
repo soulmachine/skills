@@ -722,3 +722,113 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Outcome:** applied
 **Ref:** (pending)
 **Supersedes:** Q67 — the lane split stands; only the subagent dispatch is replaced.
+
+## Q70 — affix-domains/multi-tld — gate-resolution
+
+**Question:** Review of assumed entry Q1: confirm, change or close it?
+**Options considered:** confirm / change / close
+**Chosen:** Escalate the whole affix sweep to all 8 TLDs when `<seed>.com` is taken; stay `.com`-only otherwise.
+**Decided-by:** human
+**Justification:** Frank accepted the recommendation in the 2026-10-14 review of assumed entries.
+**Outcome:** applied
+**Ref:** this commit
+**Supersedes:** Q1 — confirmed by a human; the choice is unchanged.
+
+## Q71 — affix-domains/multi-tld — gate-resolution
+
+**Question:** Review of assumed entry Q2: confirm, change or close it?
+**Options considered:** confirm / change / close
+**Chosen:** Include the bare seed in the escalated sweep.
+**Decided-by:** human
+**Justification:** Frank accepted the recommendation in the 2026-10-14 review of assumed entries.
+**Outcome:** applied
+**Ref:** this commit
+**Supersedes:** Q2 — confirmed by a human; the choice is unchanged.
+
+## Q72 — affix-domains/multi-tld — gate-resolution
+
+**Question:** Review of assumed entry Q3: confirm, change or close it?
+**Options considered:** confirm / change / close
+**Chosen:** Check `.co` over WHOIS at `whois.registry.co`; free means `DOMAIN NOT FOUND`.
+**Decided-by:** human
+**Justification:** Frank accepted the recommendation in the 2026-10-14 review of assumed entries.
+**Outcome:** applied
+**Ref:** this commit
+**Supersedes:** Q3 — confirmed by a human; the choice is unchanged.
+
+## Q73 — affix-domains/multi-tld — gate-resolution
+
+**Question:** Review of assumed entry Q4: confirm, change or close it?
+**Options considered:** confirm / change / close
+**Chosen:** Query `.app` serially with backoff and retry on 429.
+**Decided-by:** human
+**Justification:** Frank accepted the recommendation in the 2026-10-14 review of assumed entries.
+**Outcome:** applied
+**Ref:** this commit
+**Supersedes:** Q4 — confirmed by a human; the choice is unchanged.
+
+## Q74 — affix-domains/multi-tld — gate-resolution
+
+**Question:** Review of assumed entry Q6: confirm, change or close it?
+**Options considered:** confirm / change / close
+**Chosen:** Order names by catalog rank and show each name's best one or two TLDs, full matrix on request.
+**Decided-by:** human
+**Justification:** Frank accepted the recommendation in the 2026-10-14 review of assumed entries.
+**Outcome:** applied
+**Ref:** this commit
+**Supersedes:** Q6 — confirmed by a human; the choice is unchanged.
+
+## Q75 — apple-design/skill — gate-resolution
+
+**Question:** Review of assumed entry Q16: confirm, change or close it?
+**Options considered:** confirm / change / close
+**Chosen:** Keep the generated HIG pages committed in this repo.
+**Decided-by:** human
+**Justification:** Frank accepted the recommendation in the 2026-10-14 review of assumed entries; the skill stays usable offline.
+**Outcome:** applied
+**Ref:** this commit
+**Supersedes:** Q16 — confirmed by a human; the choice is unchanged.
+
+## Q76 — apple-design/skill — gate-resolution
+
+**Question:** Review of assumed entry Q18: confirm, change or close it?
+**Options considered:** confirm / change / close
+**Chosen:** Closed as moot.
+**Decided-by:** human
+**Justification:** Frank accepted closing it in the 2026-10-14 review. `agentstow` is now `agent-sync`, and its nightly run performs the sync this entry skipped.
+**Outcome:** applied
+**Ref:** this commit
+**Supersedes:** Q18 — no longer relevant.
+
+## Q77 — interactive/herdr-advisor — gate-resolution
+
+**Question:** Review of assumed entry Q22: confirm, change or close it?
+**Options considered:** confirm / change / close
+**Chosen:** Closed as moot.
+**Decided-by:** human
+**Justification:** Frank accepted closing it in the 2026-10-14 review. herdr-advisor moved to `OpenSWE/skills`, and that repo is archived.
+**Outcome:** applied
+**Ref:** this commit
+**Supersedes:** Q22 — no longer relevant.
+
+## Q78 — affix-domains/x-handle — gate-resolution
+
+**Question:** Review of assumed entry Q59: confirm, change or close it?
+**Options considered:** confirm / change / close
+**Chosen:** Closed as superseded.
+**Decided-by:** human
+**Justification:** Frank accepted closing it in the 2026-10-14 review. Q60 already replaced it: the sign-up check is now stage two, behind a twitter-cli profile lookup.
+**Outcome:** applied
+**Ref:** this commit
+**Supersedes:** Q59 — superseded by Q60.
+
+## Q79 — herdr-rename-hook/fleet — gate-resolution
+
+**Question:** Review of assumed entry Q20: does the claude-mem conflict on `~/.gemini/GEMINI.md` and `~/.config/opencode/AGENTS.md` still stand, and should those files stay with claude-mem?
+**Options considered:** confirm as is / check the fleet first, then decide
+**Chosen:** Leave both files with claude-mem. The conflict itself is gone.
+**Decided-by:** agent
+**Justification:** Frank chose to check the fleet first. On 2026-10-14, `agent-sync status` on m6 and the nine other fleet hosts reported no conflict on either path. Where the files exist (m2, macbook-air, mac-studio-m3, archs-mac-mini, dev-server-frank, dev-server-frank-lume, macbook-pro-nickel) they are still claude-mem's 241-byte and 156-byte files; m6 has only the opencode one; supermicro and mac-mini-2018-omarchy have neither. `agent-sync` no longer asks to take them over, so Q20's choice holds at no cost. The one item m2 and archs still flag is an unrelated `playwright-cli` variant.
+**Outcome:** applied
+**Ref:** this commit
+**Supersedes:** Q20 — checked against the fleet; the conflict no longer exists and the choice stands.
