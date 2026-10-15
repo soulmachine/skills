@@ -691,3 +691,23 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** Two real skills of the same name make `agent-sync adopt` fail the provisioning play, and one source of truth is the point of the move. The fleet's Commons links now point into `~/github.com/OpenSWE/skills/skills/`.
 **Outcome:** applied
 **Ref:** `OpenSWE/skills` 76c4377
+
+## Q67 — interactive/affix-domains-parallel — tradeoff
+
+**Question:** How far should the affix-domains sweep split into parallel subagents?
+**Options considered:** one subagent per TLD / one subagent per rate-limit pool / a few subagents with the candidate list split between them
+**Chosen:** One lane per rate-limit pool, one subagent per lane: `com,net` · `cc` · `org` · `ai,io` · `app` · `co` · GitHub · X. Each lane covers every candidate. A background-job shell call runs the same lanes when the harness has no subagents, and a new `merge.sh` joins the lane files.
+**Decided-by:** agent
+**Justification:** The registry quotas are per host, and the skill already records `.ai`/`.io` sharing one quota and `.app` needing serial calls. Two subagents on one host add no speed and trip the quota sooner, so the pool is the finest safe split. A split candidate list breaks the rank-order rule that sends late-quota UNKNOWNs to the lowest-ranked names.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q68 — interactive/affix-domains-parallel — deviation
+
+**Question:** Should the GitHub and X checks still wait for the domain sweep and run only on its survivors?
+**Options considered:** keep the survivor gate / check every candidate beside the domain lanes
+**Chosen:** Check every candidate, at the same time as the domain lanes.
+**Decided-by:** agent
+**Justification:** The gate put X, the slowest lane at about one name a second, after the domain sweep. A full candidate list (about 70 names) fits inside X's documented stage-1 (~95 per 15 min) and stage-2 (~250 per IP) budgets. In escalated mode nearly every name survives anyway. The cost is some X and GitHub lookups for names whose `.com` is taken in `.com`-only mode.
+**Outcome:** applied
+**Ref:** (pending)
