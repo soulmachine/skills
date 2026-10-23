@@ -842,3 +842,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** The Pro took over the Air's fleet slot and ssh alias (coding-agent Q590). The Air is to be erased.
 **Outcome:** applied
 **Ref:** this commit; personal-agent Q184
+
+## Q81 — macos-multi-instances/multi_app — deviation
+
+**Question:** For a copy signed with its sandbox kept (option B), what happens to `com.apple.security.application-groups`? The confirmed spec dropped it with the two restricted keys.
+**Options considered:** drop it, as specced / keep it, renamed to `<group>N`
+**Chosen:** Keep it, renamed to `<group>N` (`5A4RE8SF68.com.tencent.xinWeChat2`). Only `application-identifier` and `team-identifier` are dropped.
+**Decided-by:** agent
+**Justification:** With the group dropped, sandboxed WeChat2 died 1 s after launch: the kernel log showed `deny mach-register 5A4RE8SF68.com.tencent.xinWeChat2.MachPortRendezvousServer`, so every copy fell back to the unsandboxed option A. With the renamed group, the copy ran sandboxed next to the original on 2026-10-22 (WeChat 4.1.15), wrote only to its own container, and got its own group container. The change keeps the spec's goal (B first, sandbox kept) and fixes how it is done.
+**Outcome:** applied
+**Ref:** this commit
