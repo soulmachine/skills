@@ -852,3 +852,14 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** With the group dropped, sandboxed WeChat2 died 1 s after launch: the kernel log showed `deny mach-register 5A4RE8SF68.com.tencent.xinWeChat2.MachPortRendezvousServer`, so every copy fell back to the unsandboxed option A. With the renamed group, the copy ran sandboxed next to the original on 2026-10-22 (WeChat 4.1.15), wrote only to its own container, and got its own group container. The change keeps the spec's goal (B first, sandbox kept) and fixes how it is done.
 **Outcome:** applied
 **Ref:** this commit
+
+## Q82 — affix-domains/multi-tld — deviation
+
+**Question:** In escalated mode, where does `.app` rank in the per-name TLD preference order?
+**Options considered:** keep it seventh, after `.co .net .org` (Q6) / move it fourth, after `.io`
+**Chosen:** Fourth: `.com` > `.ai` > `.io` > `.app` > `.co` > `.net` > `.org` > `.cc`. `SKILL.md` step 4 and `merge.sh`'s `pref` list both use it.
+**Decided-by:** human
+**Justification:** Frank edited the order in `SKILL.md`; no reason was stated. The agent synced `merge.sh` so the merged table lists free TLDs in the same order the doc gives.
+**Outcome:** applied
+**Ref:** this commit
+**Supersedes:** Q6 — only the TLD order changes; Q74's confirmation of the rest of Q6 still holds.

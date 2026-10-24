@@ -24,7 +24,7 @@ awk -F'\t' '
     if (!(k in v) || $2 != "UNKNOWN") v[k] = $2
   }
   END {
-    split("com ai io co net org app cc", pref, " ")
+    split("com ai io app co net org cc", pref, " ")
     for (j = 1; j <= n; j++) {
       nm = order[j]; f = ""; u = ""
       for (t = 1; t <= 8; t++) {

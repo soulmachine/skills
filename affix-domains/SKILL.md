@@ -55,7 +55,7 @@ description: Attach popular brand prefixes/suffixes to a seed word and check ava
 
    In escalated mode the raw cross-product is far too long to dump. Instead, keep the sweep's order: names by their affix's catalog rank, each name's free TLDs in this preference order:
 
-   `.com` > `.ai` > `.io` > `.co` > `.net` > `.org` > `.app` > `.cc`
+   `.com` > `.ai` > `.io` > `.app` > `.co` > `.net` > `.org` > `.cc`
 
    Show the best one or two TLDs per name, and offer the complete matrix only if the user asks. Note when a name is free across *many* TLDs — that usually means it is genuinely unclaimed rather than merely available in the leftovers.
 
@@ -185,33 +185,35 @@ auto-added: the era's dominant suffix is a trailing "AI" word (~60 hot companies
 | 10 | -ify | Verbifier | 1 | turns the word into a service (Spotify, Shopify) |
 | 11 | -kit | Tool & hub | 1 | toolkit (ConvertKit) |
 | 12 | -bot | Companion | 1 | automated agent |
-| 13 | -ora | Vowel endings | 1 | elegant Latin (Pandora) |
-| 14 | -cast | Vertical positioning | 1 | media/broadcast (Podcast) |
-| 15 | -verse | Stylized & meme | 1 | a whole universe (metaverse) |
-| 16 | -app | Vertical positioning | 1 | application (Cash App) |
-| 17 | -hub | Tool & hub | 0 | gathering point (GitHub) |
-| 18 | -stack | Tool & hub | 0 | tech stack (Substack) |
-| 19 | -or | Doer | 1 | mechanical (Vector) |
-| 20 | -ee | Vowel endings | 1 | soft (Renee-like) |
-| 21 | -box | Tool & hub | 0 | packaged tool (Dropbox) |
-| 22 | -mate | Companion | 0 | sidekick (Mailmate) |
-| 23 | -works | Tool & hub | 0 | workshop (SolidWorks) |
-| 24 | -pal | Companion | 0 | trusted friend (PayPal) |
-| 25 | -pad | Tool & hub | 0 | workspace (Launchpad) |
-| 26 | -ize | Verbifier | 0 | systematize (Rentalize) |
-| 27 | -ist | Doer | 0 | specialist (Stylist) |
-| 28 | -space | Tool & hub | 0 | room to work (Squarespace) |
-| 29 | -buddy | Companion | 0 | friendly helper (GasBuddy) |
-| 30 | -ix | Vowel endings | 0 | techy (Netflix) |
-| 31 | -matic | Stylized & meme | 0 | machine-magic (Instamatic) |
-| 32 | -bay | Vertical positioning | 0 | marketplace (eBay) |
-| 33 | -ex | Vowel endings | 0 | sharp, techy (FedEx) |
-| 34 | -y | Short & modern | 0 | cute, casual (Etsy) |
-| 35 | -ate | Verbifier | 0 | automate/activate (Automate) |
-| 36 | -x | Short & modern | 0 | edgy, techy (Codex) |
-| 37 | -zilla | Stylized & meme | 0 | monster-big (Mozilla) |
-| 38 | -oo | Vowel endings | 0 | round, cute (Yahoo) |
-| 39 | -aroo | Stylized & meme | 0 | bouncy-cute (Kangaroo) |
+| 13 | -router | Tool & hub | 1 | traffic director, AI gateway (OpenRouter) |
+| 14 | -ora | Vowel endings | 1 | elegant Latin (Pandora) |
+| 15 | -cast | Vertical positioning | 1 | media/broadcast (Podcast) |
+| 16 | -verse | Stylized & meme | 1 | a whole universe (metaverse) |
+| 17 | -app | Vertical positioning | 1 | application (Cash App) |
+| 18 | -hub | Tool & hub | 0 | gathering point (GitHub) |
+| 19 | -stack | Tool & hub | 0 | tech stack (Substack) |
+| 20 | -or | Doer | 1 | mechanical (Vector) |
+| 21 | -ee | Vowel endings | 1 | soft (Renee-like) |
+| 22 | -box | Tool & hub | 0 | packaged tool (Dropbox) |
+| 23 | -mate | Companion | 0 | sidekick (Mailmate) |
+| 24 | -works | Tool & hub | 0 | workshop (SolidWorks) |
+| 25 | -pal | Companion | 0 | trusted friend (PayPal) |
+| 26 | -pad | Tool & hub | 0 | workspace (Launchpad) |
+| 27 | -ize | Verbifier | 0 | systematize (Rentalize) |
+| 28 | -ist | Doer | 0 | specialist (Stylist) |
+| 29 | -space | Tool & hub | 0 | room to work (Squarespace) |
+| 30 | -buddy | Companion | 0 | friendly helper (GasBuddy) |
+| 31 | -ix | Vowel endings | 0 | techy (Netflix) |
+| 32 | -matic | Stylized & meme | 0 | machine-magic (Instamatic) |
+| 33 | -bay | Vertical positioning | 0 | marketplace (eBay) |
+| 34 | -token | Vertical positioning | 0 | AI-era unit of usage (LLM tokens) |
+| 35 | -ex | Vowel endings | 0 | sharp, techy (FedEx) |
+| 36 | -y | Short & modern | 0 | cute, casual (Etsy) |
+| 37 | -ate | Verbifier | 0 | automate/activate (Automate) |
+| 38 | -x | Short & modern | 0 | edgy, techy (Codex) |
+| 39 | -zilla | Stylized & meme | 0 | monster-big (Mozilla) |
+| 40 | -oo | Vowel endings | 0 | round, cute (Yahoo) |
+| 41 | -aroo | Stylized & meme | 0 | bouncy-cute (Kangaroo) |
 
 ## Rules
 
