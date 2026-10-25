@@ -8,6 +8,7 @@ and it runs alongside the original under a second login.
   multi_app.py --refresh [APP]  rebuild every existing copy from the current APP
 """
 import argparse
+import json
 import plistlib
 import re
 import shutil
@@ -100,6 +101,14 @@ def build(src, n, ents):
     plist["CFBundleName"] = plist["CFBundleDisplayName"] = f"{stem}{n}"
     with open(info, "wb") as f:
         plistlib.dump(plist, f)
+    # Finder, Spotlight and the Dock show the localized name ("WeChat", "微信"), not Info.plist's.
+    for strings in dst.glob("Contents/Resources/*.lproj/InfoPlist.strings"):
+        loc = json.loads(run("plutil", "-convert", "json", "-o", "-", str(strings)).stdout)
+        for key in ("CFBundleName", "CFBundleDisplayName"):
+            if key in loc:
+                loc[key] = f"{loc[key]}{n}"
+        with open(strings, "wb") as f:
+            plistlib.dump(loc, f)
 
     sign_sandboxed(dst, ents, n)
     if launches(dst):

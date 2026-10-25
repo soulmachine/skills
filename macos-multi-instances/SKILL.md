@@ -25,7 +25,7 @@ python3 <skill-dir>/scripts/multi_app.py /Applications/Foo.app
 python3 <skill-dir>/scripts/multi_app.py --refresh  # after the original updates: rebuild every copy
 ```
 
-Each copy N gets bundle ID `<original>N`, `CFBundleName`/`CFBundleDisplayName` `<App>N`, and no `Contents/PlugIns` (the Share and FileProvider extensions would register twice under the original's IDs). The script signs it sandboxed first, launches it, and checks the main process is alive after 3 s; if not, it re-signs plain, launches again and says the copy runs without a sandbox. The copy is left running. `--refresh` skips a running copy, and warns when a once-sandboxed copy falls back to plain, since it then no longer sees its old data. `python3 scripts/test_multi_app.py` checks the numbering.
+Each copy N gets bundle ID `<original>N`, `CFBundleName`/`CFBundleDisplayName` `<App>N` (and `<localized name>N` in every `*.lproj/InfoPlist.strings`, which is what Finder, Spotlight and the Dock show: `WeChat2`, `微信2`), and no `Contents/PlugIns` (the Share and FileProvider extensions would register twice under the original's IDs). The script signs it sandboxed first, launches it, and checks the main process is alive after 3 s; if not, it re-signs plain, launches again and says the copy runs without a sandbox. The copy is left running. `--refresh` skips a running copy, and warns when a once-sandboxed copy falls back to plain, since it then no longer sees its old data. `python3 scripts/test_multi_app.py` checks the numbering.
 
 `du -sh` the original first: WeChat is about 700 MB per copy.
 
