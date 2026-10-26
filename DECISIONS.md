@@ -863,3 +863,14 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Outcome:** applied
 **Ref:** this commit
 **Supersedes:** Q6 — only the TLD order changes; Q74's confirmation of the rest of Q6 still holds.
+
+## Q83 — macos-multi-instances/multi_app — gate-resolution
+
+**Question:** Review of Q81: does a sandboxed copy keep `com.apple.security.application-groups`, renamed to `<group>N`, or drop it as the first spec said?
+**Options considered:** confirm Q81 (keep, renamed) / revert to the spec (drop)
+**Chosen:** Keep it, renamed to `<group>N`. Q81 stands.
+**Decided-by:** human
+**Justification:** Frank confirmed Q81 on 2026-10-25, after the copy built this way ran a second WeChat account next to the original, with each account in its own container.
+**Outcome:** applied
+**Ref:** this commit
+**Supersedes:** Q81 — the human review confirmed it.
