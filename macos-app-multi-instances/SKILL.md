@@ -1,5 +1,5 @@
 ---
-name: macos-multi-instances
+name: macos-app-multi-instances
 description: Run several simultaneous instances of one macOS app (e.g. two or three accounts logged into WeChat at once) by duplicating and re-signing its .app bundle. Use when an app refuses to open a second window and just refocuses the running one, when `open -n -a <App>` launches no new process, or when a second independent login session for the same app is needed without a second macOS user account or VM.
 ---
 
