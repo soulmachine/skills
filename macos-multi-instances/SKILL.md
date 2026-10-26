@@ -5,7 +5,7 @@ description: Run several simultaneous instances of one macOS app (e.g. two or th
 
 # Run several instances of a macOS app
 
-Duplicate and re-sign a macOS app bundle so each copy runs as a separate process the OS treats as a different app: its own sandbox container, its own login session, running alongside the original. Verified on WeChat 4.1.15 (Tencent, App Store, sandboxed) on 2026-10-22.
+Duplicate and re-sign a macOS app bundle so each copy runs as a separate process the OS treats as a different app: its own sandbox container, its own login session, running alongside the original. Verified on WeChat 4.1.15 (Tencent, App Store, sandboxed): two accounts logged in at once, each in its own container, on 2026-10-25.
 
 ## Facts every step rests on
 
