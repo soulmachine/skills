@@ -884,3 +884,14 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** One source of truth for each fact. The doc already existed and other skills or agents can point at it; copying it into the skill would make two copies to keep in step.
 **Outcome:** applied
 **Ref:** b6211f1; dot-agents 3ad6ecc
+
+## Q85 — imsg-permissions — skill-scope
+
+**Question:** Frank: the session was about the imsg CLI, so the skill must be about granting imsg its permissions, not generic TCC. How to refactor `macos-tcc-grant`?
+**Options considered:** keep a generic skill plus an imsg section / rename to an imsg skill and move imsg facts into it
+**Chosen:** Renamed to `imsg-permissions`. It holds imsg's grant table (SSH, terminal apps, paseo's node, imsg itself × FDA, Automation, Contacts), the exact tests, two tested scripts (`probe.sh`, `as-imsg.sh`) and the imsg gotchas. The imsg-only lines left `~/.agents/docs/macos-tcc.md`, which stays generic and is linked for TCC mechanics and the `TCC.db` edit steps. The global `AGENTS.md` TCC bullet points at the doc again.
+**Decided-by:** human
+**Justification:** Frank's correction; each fact keeps one home.
+**Outcome:** applied
+**Ref:** this commit
+**Supersedes:** Q84 — the skill is imsg-specific now.
