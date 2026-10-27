@@ -61,6 +61,20 @@ description: Attach popular brand prefixes/suffixes to a seed word and check ava
 
    **Carry the GitHub and X verdicts on the same line as the name**, in both modes — two columns, not two more lists; the user is picking a brand, and the domain, the org and the handle are one decision. A name where the domain, the org *and* the handle are all free is the strongest result the sweep can return: lead with those, and say so. Where a name's domain is free but the org or the handle is taken, keep it on the list and mark which — it is still registrable, just with a handle compromise ahead.
 
+   **When a shortlisted name's X handle is TAKEN, check its variants before reporting.** A taken `@name` is rarely the end of the brand: AI products use a small set of handle patterns, verified live on 2026-10-27 against each profile. Build the variants from this table, run them through `check_x.sh` (one call, `--stdin`), and report the free ones on the name's line as "handle: `@name` taken, `@name_ai` free". Prefer the pattern that matches the primary TLD (`_ai` for a `.ai` domain, `_io` for `.io`), and say that the display name hides the suffix in most feeds.
+
+   | Pattern | Example | Examples verified live | Followers |
+   |---|---|---|---|
+   | `_ai` suffix | `name_ai` | @cursor_ai, @perplexity_ai, @windsurf_ai, @devin_ai | 494k, 510k |
+   | `ai` glued on | `nameai` | @AnthropicAI, @MistralAI, @claudeai, @VoyageAI, @tavilyai | 1.8M, 226k, 1.96M |
+   | domain spelled out | `namedotai`, `name_io`, `name_dev` | @boltdotnew, @n8n_io, @SST_dev | 123k, 85k, 16k |
+   | `hq` suffix | `namehq`, `name_hq` | @FireworksAI_HQ | 36k |
+   | `get` / `try` / `use` prefix | `getname` | @getpostman | 55k |
+   | trailing `_` | `name_` | @OpenBot_, @JinaAI_ | 13k, 18k |
+   | descriptive word | `namecompute`, `namedevs` | @togethercompute, @OpenAIDevs | 65k, 466k |
+
+   The `_ai` suffix is the dominant pattern for AI-native products, and the two biggest examples use it. Squatters follow the same table: @CursorHQ, @trycursor and @Clinebot exist with under ten followers, so a brand that waits loses its second-choice handle too. X's 15-character limit screens long variants locally (`nameofficial` is INVALID past 15), and `name_` is often the first one gone.
+
 6. **Prompt the user to register.** Ask which they want to take. Point them to Cloudflare Registrar (or their preferred one) — note that Cloudflare Registrar does not sell every TLD in this set, so a second registrar may be needed. Do not enter payment on their behalf — registration is the user's action.
 
    For the matching GitHub org, point them at <https://github.com/organizations/new> — free, no payment, seconds to claim. Worth saying plainly: an org name costs nothing and is **first-come**, so it is the cheapest part of the brand to lose by waiting. Creating it is still the user's action, not yours.
