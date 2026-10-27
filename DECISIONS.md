@@ -874,3 +874,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Outcome:** applied
 **Ref:** this commit
 **Supersedes:** Q81 — the human review confirmed it.
+
+## Q84 — macos-tcc-grant — skill-structure
+
+**Question:** Frank asked to convert the imsg-permissions session into a skill. Where do the steps and the facts live?
+**Options considered:** one skill with all facts inside / skill with steps only, facts left in `~/.agents/docs/macos-tcc.md` / move the doc into the skill folder
+**Chosen:** Steps only in the skill, built around a "grant table" (parents × gates). Facts stay in `macos-tcc.md`, which the skill reads first. The global `AGENTS.md` TCC bullet now names the skill; it keeps the `TCC.db` guardrail.
+**Decided-by:** agent
+**Justification:** One source of truth for each fact. The doc already existed and other skills or agents can point at it; copying it into the skill would make two copies to keep in step.
+**Outcome:** applied
+**Ref:** b6211f1; dot-agents 3ad6ecc
