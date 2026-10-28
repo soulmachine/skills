@@ -80,6 +80,9 @@ current turn); `--no-wait` returns at once, then `paseo logs -f <id>` shows the 
 4. If the command fails or the reply is empty, stop and keep waiting for the user. Do not take
    your own recommended option.
 
+Every message gets a reply tag at its end, and the script prints only the reply that begins with
+that tag. The always-on agent is a shared inbox, so an untagged reply is someone else's turn.
+
 ## Hand off a task
 
 Send the task as a plain message, no relay wording. The agent runs in `bypassPermissions` and

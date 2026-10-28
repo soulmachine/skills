@@ -27,11 +27,29 @@ case $ids in
   '') echo "ask-always-on-agent: no agent labelled keepalive=$name${host:+ at $host}; is the keepalive job loaded?" >&2; exit 1 ;;
   *"$nl"*) echo "ask-always-on-agent: more than one agent labelled keepalive=$name; see the paseo-keepalive README" >&2; exit 1 ;;
 esac
+# The agent is a shared inbox (phone chats, other jobs), so tag this message and read back only
+# the reply that carries the tag. The note goes at the end of the prompt, a --prompt-file gets
+# a copy with it added, so the caller's file stays as it is.
+tag="[r$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')]"
+note="Begin your reply with $tag so it can be told from replies to other messages."
+tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
+n=$#; i=0; pf=; tagged=
+for a; do
+  i=$((i+1))
+  if [ "$pf" = 1 ]; then { cat "$a"; printf '\n\n%s\n' "$note"; } > "$tmp"; a=$tmp; pf=; tagged=1
+  elif [ "$a" = --prompt-file ]; then pf=1
+  elif [ "$i" = "$n" ] && [ -z "$tagged" ] && [ "${a#-}" = "$a" ]; then a="$a$nl$nl$note"
+  fi
+  set -- "$@" "$a"
+done
+shift "$n"
 paseo send ${host:+--host "$host"} "$ids" "$@" >/dev/null
 for a; do [ "$a" = --no-wait ] && exit 0; done
 # send and wait both return while the agent waits on a question (status "permission"): that is
 # Frank answering in paseo, so keep waiting until the agent is idle.
 while [ "$(paseo wait ${host:+--host "$host"} "$ids" --json | jq -r .status)" = permission ]; do sleep 15; done
-# paseo send prints only a status; the reply is the agent's last text entry. A [User] or
-# [Thought] line there means the agent wrote nothing back, so print nothing.
-paseo logs ${host:+--host "$host"} "$ids" --tail 1 --filter text | sed '/^\[User\] /d; /^\[Thought\] /d'
+# paseo send prints only a status; the reply is the text entry that starts with the tag, printed
+# to the end of the log minus [User] and [Thought] lines. No tagged entry means no reply: print nothing.
+paseo logs ${host:+--host "$host"} "$ids" --tail 50 --filter text \
+  | awk -v t="$tag" 'index($0, t) { s = NR } { l[NR] = $0 } END { for (i = s; s && i <= NR; i++) if (l[i] !~ /^\[(User|Thought)\] /) print l[i] }' \
+  | sed '1s/\[r[0-9a-f]*\][[:space:]]*//'
