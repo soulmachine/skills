@@ -15,7 +15,9 @@ judge or answer.
 
 - **Unanswered question.** Your question tool returned with no answer (timeout, cancel, headless
   run), or the question has waited 15 minutes. This is the only time you message an always-on
-  agent on your own.
+  agent on your own. In a herdr pane you need not count: the `ask-watchdog` LaunchAgent
+  (`~/coding-agent/devops/ask-watchdog/README.md`) relays a pane blocked on any dialog for 15
+  minutes and types the answer back.
 - **Explicit hand-off.** The user says to ask, tell, message or hand work to one of the agents.
 
 ## Which agent
