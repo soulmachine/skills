@@ -81,27 +81,33 @@ current turn); `--no-wait` returns at once, then `paseo logs -f <id>` shows the 
 ## Hand off a task
 
 Send the task as a plain message, no relay wording. The agent runs in `bypassPermissions` and
-acts on it. Relay its reply to the user as written, with one line naming the agent and host. A
-Claude Code session on the same machine also puts its own session name in the message (the first
-line of `ListAgents` shows it), so the agent can reach it later over the reverse channel.
+acts on it. Relay its reply to the user as written, with one line naming the agent and host.
+End the message with the address the agent can reach you at later:
+
+```
+Reply-to: herdr <hostname -s> <$HERDR_PANE_ID>     # when HERDR_ENV=1
+Reply-to: tmux <hostname -s> <$TMUX_PANE>          # otherwise
+```
 
 ## Reverse channel
 
-`paseo send` goes one way. The always-on agent reaches a CLI session only through Claude Code's
-peer messaging: the agent is itself a Claude Code session, listed by `ListAgents` under a derived
-name such as `coding-agent-d3`, and it has `SendMessage` too. Verified both ways on mac-mini-m6,
-2026-10-28.
+`paseo send` goes one way. Every coding CLI session runs in herdr or tmux, so the always-on
+agent reaches a session by typing into its pane, at the `Reply-to` address from the hand-off.
+Both commands work from the paseo agent, which runs in no pane: herdr and tmux find their
+sockets by default path for the same user.
 
-- Same machine only: the channel is a local socket. For another host, the CLI session must send
-  with `paseo send` and take the reply.
-- Claude Code sessions only. codex, pi and opencode are not peers; their only inbound path is the
-  reply to a message they sent.
-- A peer in a different permission mode gets the message held for the user's approval.
-- The agent's peer name changes when the keepalive job recreates it. Pick it from `ListAgents` by
-  working directory (`~/coding-agent` or `~/personal-agent`), never from memory.
+- **herdr**: `herdr agent prompt <pane> '<text>'`. When in doubt that the pane still hosts the
+  agent, `herdr agent get <pane>` first; a closed pane errors `agent_not_found`, and pane ids are
+  never reused.
+- **tmux**: `tmux send-keys -t <pane> -l '<text>'; sleep 0.3; tmux send-keys -t <pane> Enter`.
+  The pause stops a TUI from swallowing the Enter.
+- **Another host**: prefix either command with `ssh <host>`, using the `~/.ssh/config` alias.
 
-As the always-on agent: to answer a session that named itself, `SendMessage` to that name; when
-a message arrives as a cross-session message, reply to its `from` address.
+The text lands as typed input and queues behind a busy agent's current turn. Keep it to one
+line, or write a file and send its path with one line saying what to do with it.
+
+As the always-on agent: answer a hand-off at its `Reply-to` address this way. A hand-off with no
+`Reply-to` gets only the reply to its own message.
 
 ## If it fails
 
