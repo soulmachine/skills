@@ -17,7 +17,7 @@ A cell is ✅ only when a real command from that real parent passed.
 |---|---|---|---|
 | SSH | | | |
 | Terminal.app, Ghostty, iTerm2 (each one installed) | | | |
-| paseo daemon (charged to its LaunchAgent's first program, `/bin/zsh` today; with SIP on, node under it is denied, so start paseo with node directly, personal-agent Q265) | | | |
+| paseo daemon (charged to its LaunchAgent's first program, `/bin/zsh`, or node on hosts in macbook-provision's `paseo_node_launch_hosts` (mac-mini-m6); with SIP on, node under a zsh job is denied, personal-agent Q265–Q266) | | | |
 | imsg as its own process (LaunchAgent) | | | |
 
 ## Scripts
