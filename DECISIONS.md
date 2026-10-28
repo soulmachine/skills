@@ -945,3 +945,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** A copy here would drift from the installed apwcli. The git route is for self-authored skills only (`~/.agents/docs/skills.md`).
 **Outcome:** applied
 **Ref:** (reverts Q89)
+
+## Q91 — apwcli-pair — tradeoff
+
+**Question:** Frank asked to automate apwcli's PIN pairing "with computer-use". How does the script read the 6-digit PIN macOS shows, and where does it live?
+**Options considered:** lcu computer-use (screenshot the dialog, type the PIN) / Accessibility through System Events `osascript` / a step in macbook-provision's `apwcli` role
+**Chosen:** Accessibility, as a skill with `scripts/apwcli-pair` (sh wrapper) and `scripts/pair.py` run by apwcli's own interpreter: `apwlib.Daemon.request_challenge()`, read `static text` of `group 1` of the helper's "Verification Code" window, `verify_challenge(pin)`. Frank picked both on 2026-10-28.
+**Decided-by:** user
+**Justification:** lcu only drives the host the agent sits on, so remote Macs would need their always-on agent and macbook-pro-m3 has none. `sshd-keygen-wrapper` already has Accessibility on every fleet Mac with apwcli, so one script works over ssh from anywhere. Not a role step: pairing lasts a login session and the nightly sweep would pop dialogs on a locked screen, where Accessibility sees nothing. Verified on mac-mini-m6: the PIN is the group's single static text, "123 456".
+**Outcome:** applied
+**Ref:** apwcli-pair/SKILL.md; apwcli-pair/scripts/pair.py

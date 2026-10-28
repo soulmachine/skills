@@ -1,0 +1,7 @@
+#!/bin/sh
+# Pair apwcli's daemon with Apple Passwords, reading the macOS PIN through Accessibility.
+#   apwcli-pair [--verbose] [--selftest]
+# Runs pair.py with apwcli's own interpreter so `apwlib` imports; the uv tool install of the
+# macbook-provision `apwcli` role puts it there.
+set -eu
+exec "$HOME/.local/share/uv/tools/apwcli/bin/python" "$(dirname "$0")/pair.py" "$@"
