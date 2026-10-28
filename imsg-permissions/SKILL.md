@@ -77,7 +77,8 @@ A cell is ✅ only when a real command from that real parent passed.
 - **"Policy disallows prompt."** On mac-mini-m2 (SIP off) tccd refused every Contacts prompt, for
   every parent. All four Contacts cells there came from `TCC.db` rows (personal-agent Q254, Q255).
   On every host, `node` gets the same refusal: its hardened runtime lacks the Contacts
-  entitlement, so the node row's Contacts cell needs a `TCC.db` row (m6 test, 2026-10-27).
+  entitlement, so the node row's Contacts cell needs a `TCC.db` row (m6 test, 2026-10-27). That
+  row is possible only with SIP off; with SIP on (m6) the cell stays blocked.
 - **A self-send can land in the phone-number thread.** A send to the user's email address was
   filed under their phone number, so imsg exited 1 with `may_have_completed … retry is not safe`,
   though the message went out. Find it with `imsg chats --limit 5` (newest `last_message_at`)
