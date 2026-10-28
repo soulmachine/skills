@@ -935,3 +935,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** An absorbed real dir would stay on one host and look like a third-party install. Both routes use agent-sync and both land it in `~/.agents/skills/`.
 **Outcome:** assumed
 **Ref:** (pending)
+
+## Q90 — apple-passwords — deviation
+
+**Question:** Q89 moved `apple-passwords` into this repo as a self-authored skill. Frank corrected that: apwcli bundles the skill and writes it with `apwcli skills install`. Where does it live now?
+**Options considered:** keep the copy here / remove it and let the `apwcli` role of macbook-provision install it and absorb it into the Commons
+**Chosen:** Removed. macbook-provision's `apwcli` role runs `apwcli skills install` and `agent-sync adopt ~/.claude/skills/apple-passwords`, so the Commons holds a real directory that apwcli updates in place (macbook-provision Q301).
+**Decided-by:** user
+**Justification:** A copy here would drift from the installed apwcli. The git route is for self-authored skills only (`~/.agents/docs/skills.md`).
+**Outcome:** applied
+**Ref:** (reverts Q89)
