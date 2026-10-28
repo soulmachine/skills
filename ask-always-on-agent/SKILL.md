@@ -81,7 +81,27 @@ current turn); `--no-wait` returns at once, then `paseo logs -f <id>` shows the 
 ## Hand off a task
 
 Send the task as a plain message, no relay wording. The agent runs in `bypassPermissions` and
-acts on it. Relay its reply to the user as written, with one line naming the agent and host.
+acts on it. Relay its reply to the user as written, with one line naming the agent and host. A
+Claude Code session on the same machine also puts its own session name in the message (the first
+line of `ListAgents` shows it), so the agent can reach it later over the reverse channel.
+
+## Reverse channel
+
+`paseo send` goes one way. The always-on agent reaches a CLI session only through Claude Code's
+peer messaging: the agent is itself a Claude Code session, listed by `ListAgents` under a derived
+name such as `coding-agent-d3`, and it has `SendMessage` too. Verified both ways on mac-mini-m6,
+2026-10-28.
+
+- Same machine only: the channel is a local socket. For another host, the CLI session must send
+  with `paseo send` and take the reply.
+- Claude Code sessions only. codex, pi and opencode are not peers; their only inbound path is the
+  reply to a message they sent.
+- A peer in a different permission mode gets the message held for the user's approval.
+- The agent's peer name changes when the keepalive job recreates it. Pick it from `ListAgents` by
+  working directory (`~/coding-agent` or `~/personal-agent`), never from memory.
+
+As the always-on agent: to answer a session that named itself, `SendMessage` to that name; when
+a message arrives as a cross-session message, reply to its `from` address.
 
 ## If it fails
 
