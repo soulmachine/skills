@@ -78,7 +78,10 @@ A cell is ✅ only when a real command from that real parent passed.
   every parent. All four Contacts cells there came from `TCC.db` rows (personal-agent Q254, Q255).
   On every host, `node` gets the same refusal: its hardened runtime lacks the Contacts
   entitlement, so the node row's Contacts cell needs a `TCC.db` row (m6 test, 2026-10-27). That
-  row is possible only with SIP off; with SIP on (m6) the cell stays blocked.
+  row is possible only with SIP off. With SIP on, when node has Full Disk Access, a
+  `~/.local/bin/imsg` wrapper ahead of `/opt/homebrew/bin` on paseo's PATH that sets
+  `SSH_CLIENT` (when unset) makes imsg read names from the AddressBook files. On m6 it gives
+  node's imsg calls names; mark that cell ✅ (fallback) (personal-agent Q262).
 - **A self-send can land in the phone-number thread.** A send to the user's email address was
   filed under their phone number, so imsg exited 1 with `may_have_completed … retry is not safe`,
   though the message went out. Find it with `imsg chats --limit 5` (newest `last_message_at`)
