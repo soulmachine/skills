@@ -1,6 +1,6 @@
 ---
 name: imsg-permissions
-description: Grant the imsg CLI its macOS privacy permissions (Full Disk Access, Automation → Messages, Contacts) and prove each one from every parent that runs imsg. Use when setting up imsg on a Mac, after `brew upgrade imsg` or a node upgrade, or when imsg fails with "unable to open database file", "Not authorized to send Apple events" or "(Contacts unavailable)".
+description: Grant the imsg CLI its macOS privacy permissions (Full Disk Access, Automation → Messages, Contacts) and prove each one from every parent that runs imsg; on a SIP-off Mac, also deploy its IMCore bridge. Use when setting up imsg on a Mac, after `brew upgrade imsg` or a node upgrade, when imsg fails with "unable to open database file", "Not authorized to send Apple events" or "(Contacts unavailable)", or when typing indicators, read receipts or `imsg status` need the IMCore bridge.
 ---
 
 # imsg-permissions
@@ -66,6 +66,30 @@ A cell is ✅ only when a real command from that real parent passed.
 7. **Report the table**, and log each grant and each `TCC.db` edit with `log-decisions` in the
    repo you work from.
 
+## IMCore bridge (SIP-off hosts)
+
+Typing indicators, read receipts, polls and the other private sends of upstream
+[docs/advanced-imcore.md](https://github.com/openclaw/imsg/blob/main/docs/advanced-imcore.md) need
+imsg's helper dylib injected into Messages.app. These are not privacy grants: finish the grant
+table first. mac-mini-m2 runs the bridge (Q86).
+
+1. **Check the gates.** `csrutil status` says disabled. `/opt/homebrew/opt/imsg/libexec/imsg-bridge-helper.dylib`
+   exists (Homebrew ships it). `defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser`
+   names the Messages user, because the bridge agent starts only after login. mac-mini-m2 also has
+   `amfi_get_out_of_my_way=1` in `nvram boot-args`, against macOS 26+ library validation. A gate
+   that fails goes to the user: SIP and boot-args need Recovery and a reboot.
+2. **Inject.** `IMSG_LAUNCH_READY_TIMEOUT=60 imsg launch --json` restarts Messages with the helper.
+3. **Keep it across reboots.** `/opt/homebrew/opt/imsg/libexec/imsg launch --install-agent --json`
+   writes `~/Library/LaunchAgents/org.openclaw.imsg.bridge.plist`, which re-injects every 300 s
+   when the helper is missing or stale. Install it through the `opt` path: the agent saves the path
+   of the binary that ran, and `bin/imsg` is a wrapper that runs the versioned Cellar binary, which
+   `brew cleanup` deletes.
+
+Done when `imsg status --json` has `advanced_features`, `typing_indicators` and `read_receipts`
+true and `helper_version` equal to `version`, and `launchctl print gui/$(id -u)/org.openclaw.imsg.bridge`
+shows `last exit code = 0`. Before you use a bridge command, check its `selectors` entry in that
+JSON: on macOS 27 some are false (`editMessage`, `deleteChat`, `leaveChat`).
+
 ## Gotchas
 
 - **SSH needs no Contacts grant.** Over SSH, imsg reads the AddressBook SQLite files through
@@ -88,6 +112,5 @@ A cell is ✅ only when a real command from that real parent passed.
   though the message went out. Find it with `imsg chats --limit 5` (newest `last_message_at`)
   and `imsg history --chat-id <id>`; send again only if it is missing (personal-agent Q256).
 - **Upgrades drop path grants.** Grants on `libexec/imsg` and on mise's `node` match by path, so
-  `brew upgrade imsg` or a new node version needs this skill again.
-- **Typing indicators and read receipts** need SIP off and imsg's injected dylib (`imsg status`).
-  They are not privacy grants and are out of scope.
+  `brew upgrade imsg` or a new node version needs this skill again. The bridge agent handles its
+  own upgrade: a helper whose version differs from the CLI's is replaced at the next check.

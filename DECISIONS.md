@@ -895,3 +895,23 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Outcome:** applied
 **Ref:** this commit
 **Supersedes:** Q84 — the skill is imsg-specific now.
+
+## Q86 — ops/imsg-imcore-mac-mini-m2 — tradeoff
+
+**Question:** Which program path should the `org.openclaw.imsg.bridge` LaunchAgent run on mac-mini-m2?
+**Options considered:** `/opt/homebrew/bin/imsg` (a bash wrapper that execs the versioned Cellar binary, so the agent would save the Cellar path) / `/opt/homebrew/opt/imsg/libexec/imsg` (stable Homebrew symlink)
+**Chosen:** `/opt/homebrew/opt/imsg/libexec/imsg launch --install-agent` (default 300 s interval).
+**Decided-by:** agent
+**Justification:** imsg docs/advanced-imcore.md §Keep the bridge injected says the agent saves the invoked executable's path and keeps symlinks. The opt symlink survives `brew upgrade`; a Cellar path would break after `brew cleanup`. Helper discovery stays automatic, so the agent finds the dylib next to the new binary. SIP was already off and AMFI already off (`amfi_get_out_of_my_way=1`), and auto-login was already set, so no system setting changed.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q87 — imsg-permissions — deviation
+
+**Question:** Frank asked to update `imsg-permissions` after the IMCore deploy on mac-mini-m2. Its gotchas called the IMCore bridge out of scope. Where does the bridge procedure go?
+**Options considered:** a new section in `imsg-permissions` / a separate skill / leave it to upstream docs
+**Chosen:** A section "IMCore bridge (SIP-off hosts)" in `imsg-permissions`, placed after the grant steps. The description gains one trigger, and the out-of-scope gotcha is gone.
+**Decided-by:** agent
+**Justification:** The ask names this skill. The procedure is three steps, short enough to keep in one place with the imsg facts; a second skill would add one more always-loaded description for one host.
+**Outcome:** assumed
+**Ref:** (pending)
