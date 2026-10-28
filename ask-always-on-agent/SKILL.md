@@ -40,8 +40,9 @@ yourself; then it never falls back.
 ~/.agents/skills/ask-always-on-agent/scripts/ask-always-on-agent [--host <endpoint>] <name> [paseo send options] [prompt]
 ```
 
-Everything after `<name>` goes to `paseo send` unchanged. It waits for the agent's reply and prints
-it; there is no timeout. `--prompt-file <path>` sends a long message; `--image <path>` attaches a
+Everything after `<name>` goes to `paseo send` unchanged. The script waits until the agent is idle
+again, through any question the agent asks in paseo, then prints the agent's last text entry: the
+reply. There is no timeout. `--prompt-file <path>` sends a long message; `--image <path>` attaches a
 screenshot; `--behavior interrupt` cuts into a busy agent (default `steer` queues behind its
 current turn); `--no-wait` returns at once, then `paseo logs -f <id>` shows the reply.
 

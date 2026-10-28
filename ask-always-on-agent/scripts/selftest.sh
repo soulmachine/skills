@@ -9,12 +9,15 @@ echo "$*" >> "$LOG"
 case $1 in
   ls) case " $* " in *" --host "*) printf '%s\n' "$STUB_REMOTE" ;; *) printf '%s\n' "$STUB_LOCAL" ;; esac ;;
   send) : ;;
+  wait) st=$(sed -n 1p "$STUB_WAITS" 2>/dev/null); tail -n +2 "$STUB_WAITS" > "$STUB_WAITS.t" 2>/dev/null && mv "$STUB_WAITS.t" "$STUB_WAITS"
+        printf '{"status":"%s"}\n' "${st:-idle}" ;;
   logs) shift; echo "logs:$*" ;;
 esac
 STUB
 printf '#!/bin/sh\necho "$STUB_HOST"\n' > "$stub/hostname"
-chmod +x "$stub/paseo" "$stub/hostname"
-export PATH="$stub:$PATH" STUB_LOCAL= STUB_REMOTE= STUB_HOST=some-mac
+printf '#!/bin/sh\n' > "$stub/sleep"
+chmod +x "$stub/paseo" "$stub/hostname" "$stub/sleep"
+export PATH="$stub:$PATH" STUB_LOCAL= STUB_REMOTE= STUB_HOST=some-mac STUB_WAITS=$stub/waits
 run() { : > "$LOG"; out=$("$here/ask-always-on-agent" "$@" 2>&1); rc=$?; }
 fail=0
 check() { [ "$1" = "$2" ] || { echo "FAIL $3: got [$1]"; fail=1; }; }
@@ -25,6 +28,10 @@ check "$(tail -1 "$LOG")" "send aaa --no-wait hello" "local id reaches send"
 
 STUB_LOCAL=aaa run coding-agent hello
 check "$out" "logs:aaa --tail 1 --filter text" "waited send prints the reply"
+
+printf 'permission\npermission\n' > "$STUB_WAITS"; STUB_LOCAL=aaa run coding-agent hello
+check "$(grep -c '^wait' "$LOG")" 3 "keeps waiting while a question is pending"
+check "$out" "logs:aaa --tail 1 --filter text" "prints the reply after the question is answered"
 
 STUB_LOCAL= STUB_REMOTE=bbb run coding-agent hello
 check "$out" "ask-always-on-agent: coding-agent not found locally, using ssh://mac-mini-m6

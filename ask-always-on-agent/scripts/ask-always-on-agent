@@ -29,6 +29,9 @@ case $ids in
 esac
 paseo send ${host:+--host "$host"} "$ids" "$@" >/dev/null
 for a; do [ "$a" = --no-wait ] && exit 0; done
-# paseo send prints only a status; the reply is the agent's last text entry. A "[User]" line
-# there means the agent wrote nothing back, so print nothing.
-paseo logs ${host:+--host "$host"} "$ids" --tail 1 --filter text | sed '/^\[User\] /d'
+# send and wait both return while the agent waits on a question (status "permission"): that is
+# Frank answering in paseo, so keep waiting until the agent is idle.
+while [ "$(paseo wait ${host:+--host "$host"} "$ids" --json | jq -r .status)" = permission ]; do sleep 15; done
+# paseo send prints only a status; the reply is the agent's last text entry. A [User] or
+# [Thought] line there means the agent wrote nothing back, so print nothing.
+paseo logs ${host:+--host "$host"} "$ids" --tail 1 --filter text | sed '/^\[User\] /d; /^\[Thought\] /d'
