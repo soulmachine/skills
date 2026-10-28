@@ -43,7 +43,7 @@ yourself; then it never falls back.
 ```
 
 Everything after `<name>` goes to `paseo send` unchanged. The script waits until the agent is idle
-again, through any question the agent asks in paseo, then prints the agent's last text entry: the
+again, through any question the agent asks in paseo, then prints the agent's tagged reply: the
 reply. There is no timeout. `--prompt-file <path>` sends a long message; `--image <path>` attaches a
 screenshot; `--behavior interrupt` cuts into a busy agent (default `steer` queues behind its
 current turn); `--no-wait` returns at once, then `paseo logs -f <id>` shows the reply.
