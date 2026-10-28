@@ -221,13 +221,17 @@ auto-added: the era's dominant suffix is a trailing "AI" word (~60 hot companies
 | 32 | -matic | Stylized & meme | 0 | machine-magic (Instamatic) |
 | 33 | -bay | Vertical positioning | 0 | marketplace (eBay) |
 | 34 | -token | Vertical positioning | 0 | AI-era unit of usage (LLM tokens) |
-| 35 | -ex | Vowel endings | 0 | sharp, techy (FedEx) |
-| 36 | -y | Short & modern | 0 | cute, casual (Etsy) |
-| 37 | -ate | Verbifier | 0 | automate/activate (Automate) |
-| 38 | -x | Short & modern | 0 | edgy, techy (Codex) |
-| 39 | -zilla | Stylized & meme | 0 | monster-big (Mozilla) |
-| 40 | -oo | Vowel endings | 0 | round, cute (Yahoo) |
-| 41 | -aroo | Stylized & meme | 0 | bouncy-cute (Kangaroo) |
+| 35 | -mail | Vertical positioning | 0 | mailbox/messaging (Gmail, Fastmail, Protonmail) |
+| 36 | -agent | AI & agents | 0 | autonomous actor, the AI-agent wave (Superagent) |
+| 37 | -ex | Vowel endings | 0 | sharp, techy (FedEx) |
+| 38 | -y | Short & modern | 0 | cute, casual (Etsy) |
+| 39 | -ate | Verbifier | 0 | automate/activate (Automate) |
+| 40 | -x | Short & modern | 0 | edgy, techy (Codex) |
+| 41 | -inbox | Vertical positioning | 0 | the place messages land (Inbox by Gmail, Superhuman inbox) |
+| 42 | -email | Vertical positioning | 0 | literal email product (Hey email) |
+| 43 | -zilla | Stylized & meme | 0 | monster-big (Mozilla) |
+| 44 | -oo | Vowel endings | 0 | round, cute (Yahoo) |
+| 45 | -aroo | Stylized & meme | 0 | bouncy-cute (Kangaroo) |
 
 ## Rules
 

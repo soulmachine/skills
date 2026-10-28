@@ -94,11 +94,15 @@ Post-snapshot addition: **hyper-** was added to the SKILL.md catalog at **#22** 
 
 Post-snapshot additions, scored by the same formula and placed after the existing rows of equal score:
 
-- **-x** at SKILL.md **#38** (5 = 0·3·2, no corpus evidence — it was never counted in this 433-company snapshot).
+- **-x** at SKILL.md **#40** (5 = 0·3·2, no corpus evidence — it was never counted in this 433-company snapshot).
 - **-router** at SKILL.md **#13** (10 = 4·3·3). Corpus evidence is OpenRouter (hot tier, weight 2), which this table counted only under open-.
 - **-token** at SKILL.md **#34** (6 = 0·3·3, no corpus evidence).
+- **-mail** at SKILL.md **#35** (6 = 0·3·3, no corpus evidence; Gmail, Fastmail, Protonmail are older brands).
+- **-agent** at SKILL.md **#36** (6 = 0·3·3). The corpus counted the agent wave only under the agent- prefix.
+- **-inbox** at SKILL.md **#41** (5 = 0·2·3, no corpus evidence; two syllables fuse less well).
+- **-email** at SKILL.md **#42** (5 = 0·2·3, no corpus evidence).
 
-SKILL.md ranks therefore run up to three rows below the New # column above.
+SKILL.md ranks therefore run up to seven rows below the New # column above.
 
 ## Not in the catalog (from the same corpus)
 

@@ -915,3 +915,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** The ask names this skill. The procedure is three steps, short enough to keep in one place with the imsg facts; a second skill would add one more always-loaded description for one host.
 **Outcome:** assumed
 **Ref:** (pending)
+
+## Q88 — affix-domains/suffix-catalog — assumption
+
+**Question:** Frank asked for -inbox, -mail, -email, -agent and -bot as suffixes. -bot already exists at #12. Where do the four new rows rank?
+**Options considered:** append at the bottom / score with the 2E+F+M formula and place after rows of equal score, as -x and -token were
+**Chosen:** Scored: -mail 6 and -agent 6 go after -token (#35, #36); -inbox 5 and -email 5 go after -x (#41, #42). Zero corpus evidence for all four. The reference addendum lists them.
+**Decided-by:** agent
+**Justification:** The catalog is surfaced in rank order, so a row's position changes what the user sees first. The existing post-snapshot rule gives a reproducible place; appending would bury -mail below -aroo.
+**Outcome:** assumed
+**Ref:** (pending)
