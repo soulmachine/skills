@@ -17,7 +17,7 @@ A cell is ✅ only when a real command from that real parent passed.
 |---|---|---|---|
 | SSH | | | |
 | Terminal.app, Ghostty, iTerm2 (each one installed) | | | |
-| launchd `node` (paseo daemon) | | | |
+| paseo daemon (charged to its LaunchAgent's first program, `/bin/zsh` today) | | | |
 | imsg as its own process (LaunchAgent) | | | |
 
 ## Scripts
@@ -29,16 +29,17 @@ A cell is ✅ only when a real command from that real parent passed.
 
 ## Steps
 
-1. **Fill the rows.** Keep the terminal apps installed on this host. Find paseo's node with
-   `ps -axo command | grep 'paseo daemon run'` and resolve it with `readlink -f`. Done when each
+1. **Fill the rows.** Keep the terminal apps installed on this host. Find paseo's launch line with
+   `plutil -extract ProgramArguments json -o - ~/Library/LaunchAgents/sh.paseo.daemon.plist`;
+   macOS charges the first program, even after `exec` (personal-agent Q264). Done when each
    row names a real parent.
 2. **Test every cell** with `probe.sh` (`<own-address>` is the user's iMessage address) from its
    parent:
    - SSH: run it in this shell with `--keep-ssh`.
    - Terminal: a `.command` file that runs it, via `open -a Terminal <file>`.
    - Ghostty: `open -na Ghostty --args -e <file>`.
-   - node: `launchctl submit -l <label> -o <log> -- <node> -e '…execFileSync("<probe.sh>", …)'`,
-     then `launchctl remove <label>`.
+   - paseo: `launchctl submit -l <label> -o <log> --` plus paseo's exact launch line, with
+     `exec paseo daemon run` swapped for `exec <probe.sh> <own-address>`; then `launchctl remove <label>`.
    - imsg itself: `as-imsg.sh chats --limit 1 --json` and `as-imsg.sh nickname --local --address
      <own-address> --json`. Its Automation cell waits for step 5.
 
@@ -78,7 +79,7 @@ A cell is ✅ only when a real command from that real parent passed.
   every parent. All four Contacts cells there came from `TCC.db` rows (personal-agent Q254, Q255).
   On every host, `node` gets the same refusal: its hardened runtime lacks the Contacts
   entitlement, so the node row's Contacts cell needs a `TCC.db` row (m6 test, 2026-10-27). That
-  row is possible only with SIP off. With SIP on, when node has Full Disk Access, a
+  row is possible only with SIP off. With SIP on, when paseo's program has Full Disk Access, a
   `~/.local/bin/imsg` wrapper ahead of `/opt/homebrew/bin` on paseo's PATH that sets
   `SSH_CLIENT` (when unset) makes imsg read names from the AddressBook files. On m6 it gives
   node's imsg calls names; mark that cell ✅ (fallback) (personal-agent Q262).
