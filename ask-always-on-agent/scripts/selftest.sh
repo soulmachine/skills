@@ -10,7 +10,7 @@ case $1 in
   ls) case " $* " in *" --host "*) printf '%s\n' "$STUB_REMOTE" ;; *) printf '%s\n' "$STUB_LOCAL" ;; esac ;;
   send) { for a; do [ -f "$a" ] && cat "$a"; done; echo "$*"; } > "$STUB_SENT" ;;
   wait) st=$(sed -n 1p "$STUB_WAITS" 2>/dev/null); tail -n +2 "$STUB_WAITS" > "$STUB_WAITS.t" 2>/dev/null && mv "$STUB_WAITS.t" "$STUB_WAITS"
-        printf '{"status":"%s"}\n' "${st:-idle}" ;;
+        [ "$st" = broken ] && { echo "mise ERROR" >&2; exit 1; }; printf '{"status":"%s"}\n' "${st:-idle}" ;;
   logs) tag=$(grep -o '\[r[0-9a-f]*\]' "$STUB_SENT" | head -1); [ "${STUB_UNTAGGED:-}" = 1 ] && tag=
         printf '[User] noise\nolder reply\n%s pong\nsecond line\n[Thought] later\n' "$tag" ;;
 esac
@@ -45,6 +45,10 @@ check "$(cat "$stub/p")" "from file" "caller's prompt file is untouched"
 printf 'permission\npermission\n' > "$STUB_WAITS"; STUB_LOCAL=aaa run coding-agent hello
 check "$(grep -c '^wait' "$LOG")" 3 "keeps waiting while a question is pending"
 check "$(printf '%s' "$out" | head -1)" "pong" "prints the reply after the question is answered"
+
+printf 'broken\npermission\n' > "$STUB_WAITS"; STUB_LOCAL=aaa run coding-agent hello
+check "$(grep -c '^wait' "$LOG")" 3 "a failed wait is retried"
+check "$(printf '%s' "$out" | head -1)" "pong" "prints the reply after a failed wait"
 
 STUB_LOCAL= STUB_REMOTE=bbb run coding-agent hello
 check "$(printf '%s' "$out" | head -2)" "ask-always-on-agent: coding-agent not found locally, using ssh://mac-mini-m6

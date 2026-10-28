@@ -46,8 +46,9 @@ shift "$n"
 paseo send ${host:+--host "$host"} "$ids" "$@" >/dev/null
 for a; do [ "$a" = --no-wait ] && exit 0; done
 # send and wait both return while the agent waits on a question (status "permission"): that is
-# Frank answering in paseo, so keep waiting until the agent is idle.
-while [ "$(paseo wait ${host:+--host "$host"} "$ids" --json | jq -r .status)" = permission ]; do sleep 15; done
+# Frank answering in paseo, so keep waiting until the agent is idle. A failed wait (no status)
+# is a passing fault, such as a tool upgrade on the host: keep waiting rather than lose the reply.
+while st=$(paseo wait ${host:+--host "$host"} "$ids" --json 2>/dev/null | jq -r .status 2>/dev/null); [ "${st:-}" = permission ] || [ -z "${st:-}" ]; do sleep 15; done
 # paseo send prints only a status; the reply is the text entry that starts with the tag, printed
 # to the end of the log minus [User] and [Thought] lines. No tagged entry means no reply: print nothing.
 paseo logs ${host:+--host "$host"} "$ids" --tail 50 --filter text \
