@@ -1,0 +1,34 @@
+#!/bin/sh
+# Send a message to an always-on paseo agent, found by its keepalive label.
+#   ask-always-on-agent [--host <endpoint>] <name> [paseo send options] [prompt]
+# <name> is the keepalive job name (coding-agent, personal-agent). Without --host, a name
+# that is not on this host's daemon is looked up on its home host over ssh://.
+# Lives in ~/github.com/soulmachine/skills/ask-always-on-agent/scripts; self-test: selftest.sh beside it.
+set -eu
+nl='
+'
+host=
+if [ "${1:-}" = --host ]; then host=$2; shift 2; fi
+name=${1:?usage: ask-always-on-agent [--host <endpoint>] <name> [paseo send options] [prompt]}; shift
+
+# A daemon error counts as "not here": on a host with no daemon the job cannot run either.
+lookup() { paseo ls -g -q --label "keepalive=$name" ${1:+--host "$1"} 2>/dev/null || true; }
+ids=$(lookup "$host")
+if [ -z "$ids" ] && [ -z "$host" ]; then
+  # shortcut: two jobs, two home hosts; upgrade to a table when a third keepalive job appears
+  case $name in coding-agent) home=mac-mini-m6 ;; personal-agent) home=mac-mini-m2 ;; *) home= ;; esac
+  if [ -n "$home" ] && [ "$(hostname -s)" != "$home" ]; then
+    host=ssh://$home
+    ids=$(lookup "$host")
+    [ -z "$ids" ] || echo "ask-always-on-agent: $name not found locally, using $host" >&2
+  fi
+fi
+case $ids in
+  '') echo "ask-always-on-agent: no agent labelled keepalive=$name${host:+ at $host}; is the keepalive job loaded?" >&2; exit 1 ;;
+  *"$nl"*) echo "ask-always-on-agent: more than one agent labelled keepalive=$name; see the paseo-keepalive README" >&2; exit 1 ;;
+esac
+paseo send ${host:+--host "$host"} "$ids" "$@" >/dev/null
+for a; do [ "$a" = --no-wait ] && exit 0; done
+# paseo send prints only a status; the reply is the agent's last text entry. A "[User]" line
+# there means the agent wrote nothing back, so print nothing.
+paseo logs ${host:+--host "$host"} "$ids" --tail 1 --filter text | sed '/^\[User\] /d'
