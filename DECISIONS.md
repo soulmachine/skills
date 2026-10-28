@@ -925,3 +925,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** The catalog is surfaced in rank order, so a row's position changes what the user sees first. The existing post-snapshot rule gives a reproducible place; appending would bury -mail below -aroo.
 **Outcome:** assumed
 **Ref:** (pending)
+
+## Q89 — apple-passwords — deviation
+
+**Question:** Frank asked to move `~/.claude/skills/apple-passwords` into `~/.agents/skills/` via agent-sync. Absorb it into the Commons as a real directory, or source it from this repo?
+**Options considered:** `agent-sync adopt ~/.claude/skills/apple-passwords` (absorb, real dir in the Commons) / move into this repo, commit, then `agent-sync adopt` the repo path (Sourced symlink)
+**Chosen:** Sourced from this repo. The skill is self-authored, and `~/.agents/docs/skills.md` says a self-authored skill lives in git with a symlink in the store, so the hourly clone sync ships it to every host.
+**Decided-by:** agent
+**Justification:** An absorbed real dir would stay on one host and look like a third-party install. Both routes use agent-sync and both land it in `~/.agents/skills/`.
+**Outcome:** assumed
+**Ref:** (pending)
