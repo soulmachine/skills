@@ -955,3 +955,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** lcu only drives the host the agent sits on, so remote Macs would need their always-on agent and macbook-pro-m3 has none. `sshd-keygen-wrapper` already has Accessibility on every fleet Mac with apwcli, so one script works over ssh from anywhere. Not a role step: pairing lasts a login session and the nightly sweep would pop dialogs on a locked screen, where Accessibility sees nothing. Verified on mac-mini-m6: the PIN is the group's single static text, "123 456".
 **Outcome:** applied
 **Ref:** apwcli-pair/SKILL.md; apwcli-pair/scripts/pair.py
+
+## Q92 — affix-domains — tradeoff
+
+**Question:** How should the sweep resolve a domain the registry left UNKNOWN (quota block on `.ai`/`.io`, `.app` 429, `.co` WHOIS timeout), now that Cloudflare has a public no-login domain search?
+**Options considered:** script lane against Cloudflare's search WebSocket / a real-browser step that reads the Cloudflare page and writes the verdict into the run dir / keep reporting them unresolved for a later session
+**Chosen:** A real-browser step (3b) after the sweep: open `www.cloudflare.com/domains/search?q=<name.tld>` in the browser browser.md picks, read the exact-domain row, append `<fqdn>\tFREE|TAKEN` to `$RUN/dom-cloudflare.tsv`, rerun `merge.sh`. It resolves UNKNOWN only and never overrides a registry verdict. `.cc` stays with the registry.
+**Decided-by:** human (Frank asked for the browser fallback); agent chose the write-back file and the UNKNOWN-only rule
+**Justification:** A script lane is not possible: on 2026-10-28 a bare WebSocket to `search.registrar.cloudflare.com/v1/ws` and a fetch of `domains.cloudflare.com/api/tlds` both got 403 from bot protection, while Ego Lite got full results. A separate `dom-cloudflare.tsv` needs no script change: `merge.sh` already globs `dom-*.tsv` and lets a definite verdict replace an UNKNOWN, and the file keeps the registry lane files untouched for audit. UNKNOWN-only keeps the registry authoritative; the page is a registrar's view, and the skill's whole design treats registrar answers as second-tier (SKILL.md "Endpoints that look right and are wrong"). `.cc` answered "Search is unavailable" on a free and a taken name, so the page cannot resolve it.
+**Outcome:** applied
+**Ref:** (pending)
