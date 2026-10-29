@@ -5,10 +5,11 @@
 #
 # Reads RUN_DIR/names (candidates, rank order), RUN_DIR/dom-*.tsv (check_domains.sh
 # output), RUN_DIR/github.tsv and RUN_DIR/x.tsv; a missing lane file reads as "-".
-# Prints: <name>\t<FREE TLDs, best first>\t<UNKNOWN TLDs>\t<github>\t<x>
+# Prints: <name>\t<FREE TLDs, best first>\t<OWNED TLDs>\t<UNKNOWN TLDs>\t<github>\t<x>
 #
 # A lane may append re-run lines to its file: a definite verdict replaces an
-# earlier UNKNOWN, and an UNKNOWN never replaces a definite verdict.
+# earlier UNKNOWN, an UNKNOWN never replaces a definite verdict, and OWNED (from
+# check_owned.sh, the user's own accounts) replaces anything, TAKEN included.
 set -uo pipefail
 
 d="${1:?usage: merge.sh RUN_DIR}"
@@ -21,19 +22,23 @@ awk -F'\t' '
     if (FILENAME ~ /\/github\.tsv$/)  k = $1 SUBSEP "gh"
     else if (FILENAME ~ /\/x\.tsv$/)  k = $1 SUBSEP "x"
     else { i = index($1, "."); k = substr($1, 1, i - 1) SUBSEP substr($1, i + 1) }
-    if (!(k in v) || $2 != "UNKNOWN") v[k] = $2
+    if (!(k in v) || (v[k] != "OWNED" && $2 != "UNKNOWN")) v[k] = $2
   }
   END {
     split("com ai io app co net org cc", pref, " ")
     for (j = 1; j <= n; j++) {
-      nm = order[j]; f = ""; u = ""
+      nm = order[j]; f = ""; o = ""; u = ""
       for (t = 1; t <= 8; t++) {
         s = v[nm, pref[t]]
         if (s == "FREE")    f = f (f == "" ? "" : " ") pref[t]
         if (s == "UNKNOWN") u = u (u == "" ? "" : " ") pref[t]
       }
+      for (k in v) {   # OWNED may be a TLD outside the set, so walk the keys
+        split(k, kk, SUBSEP)
+        if (kk[1] == nm && v[k] == "OWNED") o = o (o == "" ? "" : " ") kk[2]
+      }
       gh = ((nm, "gh") in v) ? v[nm, "gh"] : "-"
       x  = ((nm, "x")  in v) ? v[nm, "x"]  : "-"
-      printf "%s\t%s\t%s\t%s\t%s\n", nm, (f == "" ? "-" : f), (u == "" ? "-" : u), gh, x
+      printf "%s\t%s\t%s\t%s\t%s\t%s\n", nm, (f == "" ? "-" : f), (o == "" ? "-" : o), (u == "" ? "-" : u), gh, x
     }
   }' "${files[@]}"

@@ -33,16 +33,18 @@ description: Attach popular brand prefixes/suffixes to a seed word and check ava
    ~/.claude/skills/affix-domains/scripts/sweep.sh escalated "$RUN"   # full TLD set
    ```
 
-   A **lane** is one rate-limit pool, checked by one bundled script over all of `$RUN/names`: `com,net` · `cc` · `org` · `ai,io` · `app` · `co` (`com` alone in `.com`-only mode) · GitHub · X. `.com`/`.net` share Verisign's host and `.ai`/`.io` share Identity Digital's, so each pair stays one lane: two jobs on one pool add no speed and trip its quota sooner. GitHub and X check **every** candidate, not only domain survivors, so they run beside the domain lanes instead of after them; one sweep fits inside both budgets. Each lane re-runs its UNKNOWN lookups once as soon as it ends, and skips a TLD that came back mostly UNKNOWN, with a `sweep:` line on stderr naming it. The sweep takes as long as its slowest lane, usually X at about one name a second.
+   A **lane** is one rate-limit pool, checked by one bundled script over all of `$RUN/names`: `com,net` · `cc` · `org` · `ai,io` · `app` · `co` (`com` alone in `.com`-only mode) · GitHub · X · the user's own registrar accounts. `.com`/`.net` share Verisign's host and `.ai`/`.io` share Identity Digital's, so each pair stays one lane: two jobs on one pool add no speed and trip its quota sooner. GitHub and X check **every** candidate, not only domain survivors, so they run beside the domain lanes instead of after them; one sweep fits inside both budgets. Each lane re-runs its UNKNOWN lookups once as soon as it ends, and skips a TLD that came back mostly UNKNOWN, with a `sweep:` line on stderr naming it. The sweep takes as long as its slowest lane, usually X at about one name a second.
 
-   It prints one line per name, in rank order: `<name>\t<FREE TLDs, best first>\t<UNKNOWN TLDs>\t<github>\t<x>`, with `-` for none. The raw lane files stay in `$RUN`; `scripts/merge.sh "$RUN"` reprints the table.
+   It prints one line per name, in rank order: `<name>\t<FREE TLDs, best first>\t<OWNED TLDs>\t<UNKNOWN TLDs>\t<github>\t<x>`, with `-` for none. The raw lane files stay in `$RUN`; `scripts/merge.sh "$RUN"` reprints the table.
+
+   **`OWNED` is a `TAKEN` that is the user's.** `check_owned.sh` lists the user's own domains through `cf` (Cloudflare) and `gddy` (GoDaddy) and relabels every candidate it finds there, in any TLD, so a `.chat` or `.xyz` of the seed shows up too. A CLI that is not installed or not logged in is skipped with a `check_owned:` line on stderr, and its domains keep the registry's `TAKEN`. See "Your own accounts" below.
 
    **`UNKNOWN` is not `FREE`.** It means the registry never gave a clean answer. Never show it as available; resolve it in step 3b, and say so explicitly only when Cloudflare could not answer either.
 
 3b. **Resolve UNKNOWN domains in a real browser.** List what the sweep left unresolved:
 
    ```bash
-   ~/.claude/skills/affix-domains/scripts/merge.sh "$RUN" | awk -F'\t' '$3!="-"{n=split($3,t," ");for(i=1;i<=n;i++)print $1"."t[i]}'
+   ~/.claude/skills/affix-domains/scripts/merge.sh "$RUN" | awk -F'\t' '$4!="-"{n=split($4,t," ");for(i=1;i<=n;i++)print $1"."t[i]}'
    ```
 
    For each `name.tld`, open `https://www.cloudflare.com/domains/search?q=<name.tld>` in a local real browser, chosen in the order [browser.md](~/.agents/docs/browser.md) gives (Ego Lite, then BrowserOS neo, then jev-chrome). A script will not do: Cloudflare's bot protection answers a bare `curl` or WebSocket with 403; only a real browser profile gets results. One domain per page load. Read only the row whose name is exactly that domain, not the suggestions around it (`agentsyncaroo.com.co`, `.company`, `.computer` sit right under `agentsyncaroo.com`). The verdicts, verified 2026-10-28:
@@ -51,7 +53,7 @@ description: Attach popular brand prefixes/suffixes to a seed word and check ava
    - The domain followed by **`Unavailable`** and no Buy button → `TAKEN`.
    - No row for that exact domain (the empty state `No domains match your filters`, `Search is unavailable`, an unsupported-TLD, rate-limit or offline message) → stays `UNKNOWN`. Every `.cc` query answers `Search is unavailable` (verified 2026-10-28 on a free and a taken one), so the page resolves seven of the eight TLDs and `.cc` stays with the registry.
 
-   Write each verdict back and reprint the table; `merge.sh` reads every `dom-*.tsv` and lets a definite verdict replace an UNKNOWN:
+   Write each verdict back and reprint the table; `merge.sh` reads every `dom-*.tsv`, lets a definite verdict replace an UNKNOWN, and never lets anything replace an OWNED:
 
    ```bash
    printf '%s\tTAKEN\n' mateio.io >> "$RUN/dom-cloudflare.tsv"
@@ -77,6 +79,8 @@ description: Attach popular brand prefixes/suffixes to a seed word and check ava
    In escalated mode the raw cross-product is far too long to dump. Instead, keep the sweep's order: names by their affix's catalog rank, each name's free TLDs in this preference order:
 
    `.com` > `.ai` > `.io` > `.app` > `.co` > `.net` > `.org` > `.cc`
+
+   In both modes, a name with an OWNED TLD leads the list, marked as owned: the brand is already partly in hand, and the free TLDs beside it are the ones worth buying. Never count an OWNED domain as a loss.
 
    Show the best one or two TLDs per name, and offer the complete matrix only if the user asks. Note when a name is free across *many* TLDs — that usually means it is genuinely unclaimed rather than merely available in the leftovers.
 
@@ -130,6 +134,19 @@ Verified 2026-10-28 in Ego Lite against `x.com` (Unavailable), `agentsyncaroo.co
 | `.com .net .org .ai .io .co .app` (not `.cc`) | browser page, exact-domain row | `https://www.cloudflare.com/domains/search?q=<name.tld>` | `Buy now` button free · `Unavailable` taken · no row for that exact domain UNKNOWN. One domain per load |
 
 Two traps. A bare `curl` or WebSocket to it gets 403 from bot protection, so there is no script lane: open it in a real browser. And the registrar docs' rule "a domain missing from the list is not available" is written for the dashboard's keyword search; here a missing row is UNKNOWN, never TAKEN.
+
+### Your own accounts
+
+Verified 2026-10-28 against `bitchat.org` (in the Cloudflare account, read OWNED) and `bitchat.com` (not, kept TAKEN). The registry answers "registered", never "registered to you", so this lane reads the user's registrar accounts and relabels the matches. It only ever turns a TAKEN into an OWNED; it never frees a domain.
+
+| Account | Method | Command | Notes |
+|---|---|---|---|
+| Cloudflare | `cf zones list --per-page 50 --page N`, paged until a short page | `cf` CLI, `CLOUDFLARE_API_TOKEN` or its login | The zone list, not `cf registrar registrations list`: that one caps at 50 and hides its pagination cursor. Cloudflare Registrar needs the zone on the same account, so the zone list covers every registration, plus zones the user points here from another registrar, which are theirs too |
+| GoDaddy | `gddy domain list -o json`, `.data[].domain` | `gddy` CLI with a Personal Access Token | One call, no paging |
+
+`cf registrar registrations get <name.tld>` is the exact check for one domain: the record when it is the user's, `404 Domain not found` when it is not. Use it to confirm a single OWNED, not for a sweep.
+
+Not installed, not logged in, or any error: the source is skipped with one `check_owned: cf|gddy skipped, not logged in` line on stderr, and its domains stay TAKEN. OWNED is never guessed from memory or from an earlier run.
 
 ### GitHub org namespace
 
@@ -268,8 +285,9 @@ auto-added: the era's dominant suffix is a trailing "AI" word (~60 hot companies
 
 - **Live lookups only** — never claim availability from cached knowledge or prior turns of this conversation. Domains, org names and handles get registered between checks.
 - **Only an explicit negative means available.** RDAP `404`, WHOIS `DOMAIN NOT FOUND`, `github.com/<name>` returning `404`, or X's sign-up check answering `"reason":"available"`. Anything else — `429`, `5xx`, a timeout, an empty body, a `30x` — is `UNKNOWN` or `RESERVED`, reported as such and never as free.
-- **Use the bundled scripts rather than hand-rolled `curl` or a bare `twitter user`.** `sweep.sh` runs the other three: `check_domains.sh` for TLDs, `check_github.sh` for the org name, `check_x.sh` for the X handle. The per-TLD hosts, the `.co` WHOIS special case, the `.app` retry loop, GitHub's reserved-name redirect, and X's two-stage split are all easy to get wrong in a way that fails silently toward false-available. The one non-script lane is the Cloudflare page in step 3b: browser-only, and it only ever resolves an UNKNOWN.
+- **Use the bundled scripts rather than hand-rolled `curl` or a bare `twitter user`.** `sweep.sh` runs the other four: `check_domains.sh` for TLDs, `check_github.sh` for the org name, `check_x.sh` for the X handle, `check_owned.sh` for the user's own accounts. The per-TLD hosts, the `.co` WHOIS special case, the `.app` retry loop, GitHub's reserved-name redirect, and X's two-stage split are all easy to get wrong in a way that fails silently toward false-available. The one non-script lane is the Cloudflare page in step 3b: browser-only, and it only ever resolves an UNKNOWN.
 - **The escalated TLD set is fixed**: `.com .net .org .ai .io .co .app .cc`. If the user wants a TLD outside it, check it explicitly and say the endpoint was not pre-verified.
+- **`OWNED` comes only from a live listing of the user's own accounts in this run**, through `cf` and `gddy`, never from memory or a prior conversation. When neither CLI is logged in, the domain shows `TAKEN`, and that is correct: say the lane was skipped rather than guess.
 - **A free domain with a taken org or handle is still a result** — report it, marked, rather than dropping it. The three namespaces are independent and the user may not care equally about all of them; suppressing part of the picture makes that call for them.
 - **Never report a GitHub name as available on the strength of an API 404, nor an X handle on the strength of an `x.com/<name>` 404, a v2 API not-found, or a twitter-cli `not_found` alone** — see the reserved-name traps above. GitHub's web endpoint and X's sign-up check, or nothing.
 - **No payment on the user's behalf.** Prompt them to register; they check out. Same for creating the GitHub org and claiming the X handle, which cost nothing but are still theirs to do.

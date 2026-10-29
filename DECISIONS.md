@@ -965,3 +965,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** A script lane is not possible: on 2026-10-28 a bare WebSocket to `search.registrar.cloudflare.com/v1/ws` and a fetch of `domains.cloudflare.com/api/tlds` both got 403 from bot protection, while Ego Lite got full results. A separate `dom-cloudflare.tsv` needs no script change: `merge.sh` already globs `dom-*.tsv` and lets a definite verdict replace an UNKNOWN, and the file keeps the registry lane files untouched for audit. UNKNOWN-only keeps the registry authoritative; the page is a registrar's view, and the skill's whole design treats registrar answers as second-tier (SKILL.md "Endpoints that look right and are wrong"). `.cc` answered "Search is unavailable" on a free and a taken name, so the page cannot resolve it.
 **Outcome:** applied
 **Ref:** (pending)
+
+## Q93 — affix-domains — tradeoff
+
+**Question:** The registry reports a domain the user already owns as TAKEN (bitchat.org, 2026-10-28). How should the sweep tell the user's own domains apart, and which Cloudflare command should list them?
+**Options considered:** a per-domain `cf registrar registrations get` on every TAKEN / `cf registrar registrations list` once per sweep / `cf zones list` paged once per sweep, plus `gddy domain list`; and for a CLI that is not logged in: fail the sweep / print UNKNOWN / skip and keep TAKEN
+**Chosen:** A fifth lane, `check_owned.sh`, run by `sweep.sh` beside the others: `cf zones list --per-page 50 --page N` until a short page, plus `gddy domain list -o json`, joined against the candidate names in any TLD. `merge.sh` gets an OWNED column after FREE, and OWNED is the one verdict nothing replaces. A source that is not installed or not logged in is skipped with one stderr line; its domains keep TAKEN.
+**Decided-by:** human (Frank asked for OWNED, for `cf` and `gddy`, and for TAKEN when they are not logged in); agent chose the zones list and the lane shape
+**Justification:** A point lookup per TAKEN is up to ~500 API calls in escalated mode. `cf registrar registrations list` returns 20, caps at 50 and hides its cursor, and the account holds 181 registrations, so it misses most of them; the zones list pages fully (183 zones in four pages), and Cloudflare Registrar requires the zone on the same account, so it is a superset of the registrations. A zone the user points here from another registrar is theirs too. Skipping toward TAKEN is the only safe failure: an OWNED must never be guessed, and TAKEN is what the sweep said before this lane existed.
+**Outcome:** applied
+**Ref:** affix-domains/scripts/check_owned.sh; SKILL.md "Your own accounts"

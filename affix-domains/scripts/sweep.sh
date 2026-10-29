@@ -6,7 +6,8 @@
 #
 # RUN_DIR/names holds the candidates, one per line, in rank order. A lane is one
 # rate-limit pool, run as a background job over every name: com,net · cc · org ·
-# ai,io · app · co (com alone in .com-only mode) · GitHub · X. Each lane re-runs
+# ai,io · app · co (com alone in .com-only mode) · GitHub · X · the user's own
+# registrar accounts (cf, gddy), whose domains read OWNED instead of TAKEN. Each lane re-runs
 # its UNKNOWN lookups once, per TLD, as soon as it ends, unless most of that TLD
 # came back UNKNOWN: that is a quota block, and a retry inside the session does
 # not clear it. Prints merge.sh's table; lane files stay in RUN_DIR.
@@ -48,5 +49,6 @@ name_lane() {   # $1=output file, $2=checker
 for t in "${tld_lanes[@]}"; do domain_lane "$t" & done
 name_lane "$RUN/github.tsv" "$here/check_github.sh" &
 name_lane "$RUN/x.tsv"      "$here/check_x.sh" &
+"$here/check_owned.sh" --stdin < "$RUN/names" > "$RUN/dom-owned.tsv" &
 wait
 "$here/merge.sh" "$RUN"
