@@ -19,6 +19,7 @@ A cell is ✅ only when a real command from that real parent passed.
 | Terminal.app, Ghostty, iTerm2 (each one installed) | | | |
 | paseo daemon (charged to its LaunchAgent's first program, `/bin/zsh`, or node on hosts in macbook-provision's `paseo_node_launch_hosts` (mac-mini-m6); with SIP on, node under a zsh job is denied, personal-agent Q265–Q266) | | | |
 | imsg as its own process (LaunchAgent) | | | |
+| openroutine daemon (charged to `~/.cargo/bin/openroutine`, its LaunchAgent's program; `cargo install` leaves it ad-hoc signed, so each rebuild drops the grant until coding-agent's `devops/openroutine/resign.sh` re-signs it with a self-made certificate, coding-agent Q710; its `tcc-probe` task checks daily) | | | |
 
 ## Scripts
 
