@@ -10,7 +10,9 @@
 # registrar accounts (cf, gddy), whose domains read OWNED instead of TAKEN. Each lane re-runs
 # its UNKNOWN lookups once, per TLD, as soon as it ends, unless most of that TLD
 # came back UNKNOWN: that is a quota block, and a retry inside the session does
-# not clear it. Prints merge.sh's table; lane files stay in RUN_DIR.
+# not clear it. A TLD with fewer than five lookups is always retried: one name
+# cannot tell a quota block from a slow answer. Prints merge.sh's table; lane
+# files stay in RUN_DIR.
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -29,7 +31,7 @@ retry() {   # $1=lane file, $2=suffix to strip ("" for name lanes), rest=checker
       n++; if ($2 == "UNKNOWN") { u++; l = l substr($1, 1, length($1) - length(s)) "\n" }
     }
     END {
-      if (u * 2 > n) printf "sweep: %s %d of %d UNKNOWN, a quota block; not retried\n", (s == "" ? lane : s), u, n > "/dev/stderr"
+      if (n >= 5 && u * 2 > n) printf "sweep: %s %d of %d UNKNOWN, a quota block; not retried\n", (s == "" ? lane : s), u, n > "/dev/stderr"
       else printf "%s", l
     }' "$f")
   [[ -n "$names" ]] && printf '%s\n' "$names" | "$@" --stdin >> "$f"
