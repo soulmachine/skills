@@ -835,13 +835,13 @@ An investigation in the same session corrected a belief formed that night: a `pr
 
 ## Q80 — sync-claude-accounts/macbook-pro-m3 — scope-change
 
-**Question:** macbook-air moved to a new MacBook Pro named macbook-pro-m3 (personal-agent Q184). Which name do the fleet credential scripts use by default?
+**Question:** macbook-air moved to a new MacBook Pro named macbook-pro-m3 (personal-agent Q185). Which name do the fleet credential scripts use by default?
 **Options considered:** keep `macbook-air` / rename to `macbook-pro-m3`
 **Chosen:** The `FLEET_HOSTS` defaults in `fleet-refresh-credentials` and `fleet-health-check` name macbook-pro-m3.
 **Decided-by:** human
 **Justification:** The Pro took over the Air's fleet slot and ssh alias (coding-agent Q590). The Air is to be erased.
 **Outcome:** applied
-**Ref:** this commit; personal-agent Q184
+**Ref:** this commit; personal-agent Q185
 
 ## Q81 — macos-multi-instances/multi_app — deviation
 

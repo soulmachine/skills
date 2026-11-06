@@ -17,7 +17,7 @@ A cell is ✅ only when a real command from that real parent passed.
 |---|---|---|---|
 | SSH | | | |
 | Terminal.app, Ghostty, iTerm2 (each one installed) | | | |
-| paseo daemon (charged to its LaunchAgent's first program, `/bin/zsh`, or node on hosts in macbook-provision's `paseo_node_launch_hosts` (mac-mini-m6); with SIP on, node under a zsh job is denied, personal-agent Q265–Q266) | | | |
+| paseo daemon (charged to its LaunchAgent's first program, `/bin/zsh`, or node on hosts in macbook-provision's `paseo_node_launch_hosts` (mac-mini-m6); with SIP on, node under a zsh job is denied, personal-agent Q284–Q285) | | | |
 | imsg as its own process (LaunchAgent) | | | |
 | openroutine daemon (charged to `~/.cargo/bin/openroutine`, its LaunchAgent's program; `cargo install` leaves it ad-hoc signed, so each rebuild drops the grant until coding-agent's `devops/openroutine/resign.sh` re-signs it with a self-made certificate, coding-agent Q710; its `tcc-probe` task checks daily) | | | |
 
@@ -32,7 +32,7 @@ A cell is ✅ only when a real command from that real parent passed.
 
 1. **Fill the rows.** Keep the terminal apps installed on this host. Find paseo's launch line with
    `plutil -extract ProgramArguments json -o - ~/Library/LaunchAgents/sh.paseo.daemon.plist`;
-   macOS charges the first program, even after `exec` (personal-agent Q264). Done when each
+   macOS charges the first program, even after `exec` (personal-agent Q283). Done when each
    row names a real parent.
 2. **Test every cell** with `probe.sh` (`<own-address>` is the user's iMessage address) from its
    parent:
@@ -101,17 +101,17 @@ JSON: on macOS 27 some are false (`editMessage`, `deleteChat`, `leaveChat`).
 - **Terminal.app never asks for Contacts.** Its `Info.plist` has no `NSContactsUsageDescription`.
   Its Contacts cell needs a `TCC.db` row (macos-tcc.md).
 - **"Policy disallows prompt."** On mac-mini-m2 (SIP off) tccd refused every Contacts prompt, for
-  every parent. All four Contacts cells there came from `TCC.db` rows (personal-agent Q254, Q255).
+  every parent. All four Contacts cells there came from `TCC.db` rows (personal-agent Q263, Q264).
   On every host, `node` gets the same refusal: its hardened runtime lacks the Contacts
   entitlement, so the node row's Contacts cell needs a `TCC.db` row (m6 test, 2026-10-27). That
   row is possible only with SIP off. With SIP on, when paseo's program has Full Disk Access, a
   `~/.local/bin/imsg` wrapper ahead of `/opt/homebrew/bin` on paseo's PATH that sets
   `SSH_CLIENT` (when unset) makes imsg read names from the AddressBook files. On m6 it gives
-  node's imsg calls names; mark that cell ✅ (fallback) (personal-agent Q262).
+  node's imsg calls names; mark that cell ✅ (fallback) (personal-agent Q281).
 - **A self-send can land in the phone-number thread.** A send to the user's email address was
   filed under their phone number, so imsg exited 1 with `may_have_completed … retry is not safe`,
   though the message went out. Find it with `imsg chats --limit 5` (newest `last_message_at`)
-  and `imsg history --chat-id <id>`; send again only if it is missing (personal-agent Q256).
+  and `imsg history --chat-id <id>`; send again only if it is missing (personal-agent Q266).
 - **Upgrades drop path grants.** Grants on `libexec/imsg` and on mise's `node` match by path, so
   `brew upgrade imsg` or a new node version needs this skill again. The bridge agent handles its
   own upgrade: a helper whose version differs from the CLI's is replaced at the next check.
