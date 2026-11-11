@@ -27,12 +27,12 @@ plutil -insert "${h//./\\.}" -bool true "$f"    # plutil key paths split on dots
 
 **`mount_smbfs: server rejected the connection: Authentication error` with a password you know is right** — confirm the password on the server: `dscl /Local/Default -authonly <user> '<pw>'`. If valid, the server account has no SMB-NT hash: `sudo dscl . -read /Users/<user> AuthenticationAuthority` shows `HASHLIST:<SALTED-SHA512-PBKDF2,SRP-…>` without `SMB-NT`, so the server accepts SMB by Kerberos only. That is fine as long as the Apple-ID branch works; fix the client side first. Enabling password SMB on the server (System Settings → General → Sharing → File Sharing → ⓘ → Options → tick the account) is the last resort: it stores a weaker NT hash and applies to every client.
 
-**The client has no Apple-ID identity** (different Apple ID, or `AltSecurityIdentities` missing on either account) — password path: enable password SMB on the server as above, then store the credential on the client from its GUI session, because SSH sessions refuse keychain writes even with the keychain unlocked:
-```
-sudo launchctl asuser <uid> sudo -u <user> -i security add-internet-password -A \
-  -a <server-account> -s <host> -r "smb " -l "<host> SMB" -w '<pw>'
-```
-Move the password machine-to-machine (read it from another Mac's keychain into a shell variable and pipe it) rather than through the conversation.
+**The client has no Apple-ID identity** (different Apple ID, or `AltSecurityIdentities` missing on either account) — password path. Prefer a dedicated non-admin server account that does nothing but SMB, so the weaker NT hash belongs to that account alone.
+
+1. **Server: give the account an SMB-NT hash.** Use the File Sharing checkbox above, or headless: `sudo pwpolicy -u <user> -sethashtypes SMB-NT on`, then set the password again (`sudo dscl . -passwd /Users/<user> '<pw>'`). The hash is computed only when the password is set. Done when `AuthenticationAuthority` lists `SMB-NT`.
+2. **Client: let NetAuth save the credential itself.** Do not create the item with `security add-internet-password`. NetFS matches the item on the share's path (`path=<share>`) as well as server, account and protocol. A hand-made item has no path, so it never matches, with or without `-t dflt`, and every mount hangs on a password dialog. Instead, from the client's GUI session, start a mount (`osascript -e 'mount volume "smb://<user>@<host>/<share>"'` in the background, through `launchctl asuser <uid> sudo -u <login-user>`). Fill NetAuthAgent's "Enter your name and password" dialog once: Registered User, the name and password, and "Remember this password in my keychain" ticked. You can do this by hand or with System Events, feeding the script on stdin so the password stays out of argv. Done when `security find-internet-password -a <user> -s <host>` shows `"path"<blob>="<share>"`.
+
+Then `scripts/verify.sh` must pass. The login keychain must be unlocked in the GUI session; if it locks, mounts wait on a dialog. A changed password means saving the item again through the dialog. Move the password machine-to-machine (from a password manager or another Mac's keychain, piped) rather than through the conversation. `pkill NetAuthAgent` clears dialogs left over from failed attempts.
 
 **`kinit <user>@LKDC:…` says "unable to reach any KDC"** — expected. LKDC is negotiated in-band over the SMB connection; there is no KDC to reach and this route is closed.
 
