@@ -2,10 +2,10 @@
 # Mount a Mac's SMB shares at /Volumes/<share> via NetFS and keep them healthy.
 # Idempotent and silent when everything is mounted: safe to run every few minutes.
 # Configured through the environment (the LaunchAgent sets these):
-#   SMB_HOST    server hostname (Tailscale MagicDNS name)            required
+#   SMB_HOST    server hostname (MagicDNS name, or <host>.local)     required
 #   SMB_SHARES  share names separated by |                           required
 #   SMB_USER    account on the server; empty = let NetAuth choose    optional
-#   TAILSCALE   tailscale CLI path; skipped if absent                 default /usr/local/bin/tailscale
+#   TAILSCALE   tailscale CLI path; empty or absent = skip the check  default /usr/local/bin/tailscale
 #   LOG         log file                                              default ~/Library/Logs/mount-smb-shares.log
 emulate -L zsh
 setopt no_unset
@@ -13,7 +13,8 @@ setopt no_unset
 : ${SMB_HOST:?set SMB_HOST}
 : ${SMB_SHARES:?set SMB_SHARES (share names separated by |)}
 SMB_USER=${SMB_USER:-}
-TAILSCALE=${TAILSCALE:-/usr/local/bin/tailscale}
+# `-` not `:-`: an explicit empty value must stay empty and skip the check (a LAN-only mount).
+TAILSCALE=${TAILSCALE-/usr/local/bin/tailscale}
 LOG=${LOG:-$HOME/Library/Logs/mount-smb-shares.log}
 shares=(${(s:|:)SMB_SHARES})
 

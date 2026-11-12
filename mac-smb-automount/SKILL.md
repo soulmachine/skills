@@ -10,7 +10,7 @@ Deploys `scripts/mount-smb-shares.sh` behind a LaunchAgent on the **client** Mac
 ## Facts every step rests on
 
 - **Mounts happen at login, not boot.** NetFS needs the Aqua session (and, with FileVault, the unlocked login keychain), so the agent lives in `gui/<uid>`. A LaunchDaemon would mount as root, outside the user's namespace. With auto-login on and FileVault off, login follows boot unattended.
-- **One hostname.** Address the server by its Tailscale MagicDNS name only. Tailscale takes the direct LAN path at home, so the same name works away with no switching logic.
+- **One hostname.** Address the server by one name. For a client that travels, use its Tailscale MagicDNS name: Tailscale takes the direct LAN path at home, so the same name works away with no switching logic. For two Macs that never leave one LAN, use `<host>.local` and install with `--tailscale ""`, so a Tailscale outage cannot stop the mount: the script then skips its Tailscale check.
 - **NetFS, not `mount_smbfs`.** `/Volumes` is not user-writable; `osascript -e 'mount volume "smb://…"'` mounts there through the privileged agent and shows in Finder. It blocks **forever** when the server cannot authenticate the client, so the script caps it with a watchdog.
 - **Probe with `smbutil statshares -m <mountpoint>`** (rc 0 live, 64 gone). Reading the directory from a LaunchAgent gets TCC's `Operation not permitted` while an interactive shell reads fine; an `ls` probe turns every healthy pass into an unmount/remount cycle.
 - **SSH is the wrong context.** Over SSH, `mount volume` hangs, keychain writes are refused, and credential caches are invisible. Reach the GUI session instead: `sudo launchctl asuser <uid> sudo -u <user> -i <cmd>`.
@@ -25,7 +25,7 @@ Client: `nc -z -G 3 <host> 445`; `dscl . -read /Users/<user> AltSecurityIdentiti
 
 Shares that a client sees beyond `sharing -l` are smbd's virtual shares (whole volumes, home folders); the `macos-smb-server` skill covers trimming them.
 
-Done when the share names are known, port 445 answers on the Tailscale name, both accounts carry the same `com.apple.idms.appleid…` under `AltSecurityIdentities`, and the console owner is the user who will mount.
+Done when the share names are known, port 445 answers on that name, both accounts carry the same `com.apple.idms.appleid…` under `AltSecurityIdentities`, and the console owner is the user who will mount.
 
 ### 2. First silent mount
 

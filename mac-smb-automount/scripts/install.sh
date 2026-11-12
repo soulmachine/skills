@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Install mount-smb-shares.sh as a LaunchAgent for the current login user.
 #   install.sh --host <fqdn> --share <name> [--share <name> …] [--user <server-account>]
-#              [--label <reverse.dns>] [--tailscale <path>]
+#              [--label <reverse.dns>] [--tailscale <path>]   (--tailscale "" skips the Tailscale check)
 emulate -L zsh
 set -e
 HOST= USER_= LABEL=com.user.mount-smb-shares TS=/usr/local/bin/tailscale
