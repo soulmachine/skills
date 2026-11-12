@@ -119,6 +119,12 @@ As the always-on agent: answer a hand-off at its `Reply-to` address this way. A 
 - `no agent labelled keepalive=<name>`: the keepalive job is not loaded on that host
   (`launchctl list | grep keepalive`), or the daemon is down (`paseo daemon status`). See
   `~/coding-agent/devops/paseo-keepalive/README.md`.
+- The same message `at ssh://<host>` can also mean this host cannot ssh there. Check with
+  `paseo ls --host ssh://<host>`; it then says `SSH authentication or host verification failed`.
+  Hosts outside the control plane, such as mac-studio-m3, have no ssh login to m2 or m6, so the
+  script cannot work from them. Write the message to a file, copy it to m2 or m6, and run the
+  script there. Or paste the text into the agent's chat in the Paseo app. Do not add an ssh key
+  to reach the control plane.
 - `more than one agent labelled`: the job made a duplicate; archive one by hand, same README.
 - `Cannot connect to daemon` with `--host`: the endpoint must be `host:port`, `ssh://host`, or
   a pairing URL.
