@@ -32,9 +32,13 @@ For an **unanswered question**, pick by folder: a session under `~/personal-agen
 topic; when the topic is unclear or mixed, ask the user which agent before sending.
 
 The script finds the agent by its label `keepalive=<name>` on this host's paseo daemon, and
-follows the name to its home host (`ssh://mac-mini-m2` or `ssh://mac-mini-m6`) when it is not
-here. It prints one stderr line when it does. Pass `--host <endpoint>` to choose the daemon
-yourself; then it never falls back.
+follows the name to its home host when it is not here: `personal-agent` to mac-mini-m2,
+`coding-agent` to mac-mini-m6. It reaches the home daemon on its own port, `<HostName>:6767`,
+where `<HostName>` is the one this host's ssh alias uses (`ssh -G`: `.local` on the LAN, ts.net
+elsewhere). No ssh login is needed. Both daemons ask for a password, which the script sends from
+`PASEO_FLEET_PASSWORD`, set in `~/.zshenv` (1Password `Automation` item "Paseo daemon password
+(m2, m6)"). It prints one stderr line when it falls back. Pass `--host <endpoint>` to choose the
+daemon yourself; then it never falls back.
 
 ## The script
 
@@ -119,12 +123,12 @@ As the always-on agent: answer a hand-off at its `Reply-to` address this way. A 
 - `no agent labelled keepalive=<name>`: the keepalive job is not loaded on that host
   (`launchctl list | grep keepalive`), or the daemon is down (`paseo daemon status`). See
   `~/coding-agent/devops/paseo-keepalive/README.md`.
-- The same message `at ssh://<host>` can also mean this host cannot ssh there. Check with
-  `paseo ls --host ssh://<host>`; it then says `SSH authentication or host verification failed`.
-  Hosts outside the control plane, such as mac-studio-m3, have no ssh login to m2 or m6, so the
-  script cannot work from them. Write the message to a file, copy it to m2 or m6, and run the
-  script there. Or paste the text into the agent's chat in the Paseo app. Do not add an ssh key
-  to reach the control plane.
+- The same message `at <host>:6767` hides the real error. Run
+  `PASEO_PASSWORD=$PASEO_FLEET_PASSWORD paseo ls --host <host>:6767` to see it:
+  - `requires a password` / `rejected the password`: `PASEO_FLEET_PASSWORD` is unset or stale on
+    this host.
+  - `Cannot connect`: the home daemon does not listen on `0.0.0.0:6767`, or the host is off.
+  Until it is fixed, write the message to a file and paste it into the agent's chat in the Paseo app.
 - `more than one agent labelled`: the job made a duplicate; archive one by hand, same README.
 - `Cannot connect to daemon` with `--host`: the endpoint must be `host:port`, `ssh://host`, or
   a pairing URL.

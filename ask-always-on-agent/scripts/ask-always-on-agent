@@ -2,7 +2,8 @@
 # Send a message to an always-on paseo agent, found by its keepalive label.
 #   ask-always-on-agent [--host <endpoint>] <name> [paseo send options] [prompt]
 # <name> is the keepalive job name (coding-agent, personal-agent). Without --host, a name
-# that is not on this host's daemon is looked up on its home host over ssh://.
+# that is not on this host's daemon is looked up on its home host's daemon port (6767), with
+# the password from PASEO_FLEET_PASSWORD.
 # Lives in ~/github.com/soulmachine/skills/ask-always-on-agent/scripts; self-test: selftest.sh beside it.
 set -eu
 nl='
@@ -13,12 +14,16 @@ name=${1:?usage: ask-always-on-agent [--host <endpoint>] <name> [paseo send opti
 
 # A daemon error counts as "not here": on a host with no daemon the job cannot run either.
 lookup() { paseo ls -g -q --label "keepalive=$name" ${1:+--host "$1"} 2>/dev/null || true; }
+# A remote daemon wants the fleet password; the local one takes its local credential instead.
+remote() { export PASEO_PASSWORD="${PASEO_PASSWORD:-${PASEO_FLEET_PASSWORD:-}}"; }
+[ -z "$host" ] || remote
 ids=$(lookup "$host")
 if [ -z "$ids" ] && [ -z "$host" ]; then
   # shortcut: two jobs, two home hosts; upgrade to a table when a third keepalive job appears
   case $name in coding-agent) home=mac-mini-m6 ;; personal-agent) home=mac-mini-m2 ;; *) home= ;; esac
   if [ -n "$home" ] && [ "$(hostname -s)" != "$home" ]; then
-    host=ssh://$home
+    # The daemon port at the name this host's ssh alias uses: .local on the LAN, ts.net elsewhere.
+    host=$(ssh -G "$home" 2>/dev/null | awk '/^hostname /{print $2; exit}'):6767; remote
     ids=$(lookup "$host")
     [ -z "$ids" ] || echo "ask-always-on-agent: $name not found locally, using $host" >&2
   fi

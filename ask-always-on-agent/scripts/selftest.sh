@@ -8,7 +8,7 @@ cat > "$stub/paseo" <<'STUB'
 echo "$*" >> "$LOG"
 case $1 in
   ls) case " $* " in *" --host "*) printf '%s\n' "$STUB_REMOTE" ;; *) printf '%s\n' "$STUB_LOCAL" ;; esac ;;
-  send) { for a; do [ -f "$a" ] && cat "$a"; done; echo "$*"; } > "$STUB_SENT" ;;
+  send) { for a; do [ -f "$a" ] && cat "$a"; done; echo "$*"; } > "$STUB_SENT"; echo "pw=${PASEO_PASSWORD:-}" >> "$LOG" ;;
   wait) st=$(sed -n 1p "$STUB_WAITS" 2>/dev/null); tail -n +2 "$STUB_WAITS" > "$STUB_WAITS.t" 2>/dev/null && mv "$STUB_WAITS.t" "$STUB_WAITS"
         [ "$st" = broken ] && { echo "mise ERROR" >&2; exit 1; }; printf '{"status":"%s"}\n' "${st:-idle}" ;;
   logs) tag=$(grep -o '\[r[0-9a-f]*\]' "$STUB_SENT" | head -1); [ "${STUB_UNTAGGED:-}" = 1 ] && tag=
@@ -17,8 +17,10 @@ esac
 STUB
 printf '#!/bin/sh\necho "$STUB_HOST"\n' > "$stub/hostname"
 printf '#!/bin/sh\n' > "$stub/sleep"
-chmod +x "$stub/paseo" "$stub/hostname" "$stub/sleep"
-export PATH="$stub:$PATH" STUB_LOCAL= STUB_REMOTE= STUB_HOST=some-mac STUB_WAITS=$stub/waits
+printf '#!/bin/sh\n[ "$1" = -G ] && printf "user x\\nhostname %%s.local\\n" "$2"\n' > "$stub/ssh"
+chmod +x "$stub/paseo" "$stub/hostname" "$stub/sleep" "$stub/ssh"
+unset PASEO_PASSWORD
+export PATH="$stub:$PATH" STUB_LOCAL= STUB_REMOTE= STUB_HOST=some-mac STUB_WAITS=$stub/waits PASEO_FLEET_PASSWORD=fleetpw
 run() { : > "$LOG"; : > "$STUB_SENT"; out=$("$here/ask-always-on-agent" "$@" 2>&1); rc=$?; }
 fail=0
 check() { [ "$1" = "$2" ] || { echo "FAIL $3: got [$1]"; fail=1; }; }
@@ -26,6 +28,7 @@ check() { [ "$1" = "$2" ] || { echo "FAIL $3: got [$1]"; fail=1; }; }
 STUB_LOCAL=aaa run coding-agent --no-wait hello
 check "$(grep -c '^logs' "$LOG")" 0 "no logs call after --no-wait"
 check "$(sed -n 2p "$LOG")" "send aaa --no-wait hello" "local id reaches send"
+check "$(grep '^pw=' "$LOG")" "pw=" "no password for the local daemon"
 check "$(grep -c 'Begin your reply with \[r[0-9a-f]*\]' "$STUB_SENT")" 1 "prompt carries the reply tag"
 
 STUB_LOCAL=aaa run coding-agent hello
@@ -51,9 +54,10 @@ check "$(grep -c '^wait' "$LOG")" 3 "a failed wait is retried"
 check "$(printf '%s' "$out" | head -1)" "pong" "prints the reply after a failed wait"
 
 STUB_LOCAL= STUB_REMOTE=bbb run coding-agent hello
-check "$(printf '%s' "$out" | head -2)" "ask-always-on-agent: coding-agent not found locally, using ssh://mac-mini-m6
+check "$(printf '%s' "$out" | head -2)" "ask-always-on-agent: coding-agent not found locally, using mac-mini-m6.local:6767
 pong" "fallback host reaches send and logs"
-check "$(sed -n 3p "$LOG")" "send --host ssh://mac-mini-m6 bbb hello" "fallback host reaches send"
+check "$(sed -n 3p "$LOG")" "send --host mac-mini-m6.local:6767 bbb hello" "fallback host reaches send"
+check "$(grep '^pw=' "$LOG")" "pw=fleetpw" "fallback sends the fleet password"
 
 STUB_LOCAL= STUB_REMOTE=bbb STUB_HOST=mac-mini-m6 run coding-agent hello
 check "$rc" 1 "no fallback on the home host"
