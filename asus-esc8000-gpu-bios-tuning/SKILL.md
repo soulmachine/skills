@@ -56,6 +56,11 @@ at VM adoption). VT-d has no BIOS toggle on this platform (always exposed; gate 
 
 - PATCH target is `…/Bios/SD`, **not** `/Bios/Settings`; needs `If-Match` etag (else 428).
 - PATCH returns **503** ("inventory processing") while the host is mid-boot — wait for it to settle.
+- **503 that never clears** (an hour after boot, and after a BMC reset) plus a registry version older
+  than the running BIOS = the BIOS-to-BMC sync is broken. A reboot will not fix it. Use BIOS Setup
+  over the KVM console instead (see REFERENCE.md "Fallback: BIOS Setup by hand").
+- After a BIOS update, re-check SNC: on 0901 the `AUTO` value turns SNC **on** (4 NUMA nodes on a
+  2-socket host), where on 0804 it gave 2 nodes. Verify in-band (`ls -d /sys/devices/system/node/node*`).
 - Pace gently / single connection; a freshly-rebooted AMI BMC locks out on rapid auth (`AccessDenied`).
 - This only touches BIOS. The `intel_iommu=on iommu=pt` kernel cmdline is a separate OS-side step.
 

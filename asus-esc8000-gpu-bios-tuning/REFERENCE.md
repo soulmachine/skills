@@ -57,6 +57,30 @@ reads the live token strings from a known-good server instead of the stored ones
 to clone one ESC8000's config onto another. Always confirm both run the same BIOS first
 (`asus-esc8000-firmware-upgrade` skill).
 
+## Fallback: BIOS Setup by hand (validated on BIOS 0901)
+
+When Redfish BIOS writes keep returning 503, set the profile in Aptio Setup over the BMC's HTML5 KVM
+(reboot, press Del in POST, or `ipmitool chassis bootdev bios` then reset). Where each item lives:
+
+| Setting | Setup path |
+|---|---|
+| Resize BAR | Advanced → PCI Subsystem Settings |
+| Restore on AC power loss | Advanced → APM Configuration |
+| SNC | Socket Configuration → Uncore Configuration → Uncore General Configuration |
+| C1E promotion | Socket Configuration → Advanced Power Management → CPU C State Control |
+| Energy Efficient Turbo | … → Advanced Power Management → CPU P State Control |
+| Latency Optimized Mode | … → Advanced Power Management → CPU - Advanced PM Tuning |
+| Workload config, EPB | … → CPU - Advanced PM Tuning → Energy Perf BIAS |
+| ASPM (IIO global) | Socket Configuration → IIO Configuration → Global Configuration |
+
+- **EPP has no Setup item on 0901**: with Hardware P-States = Native Mode the OS sets EPP
+  (`/sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference`).
+- The KVM viewer needs a click inside the screen before it takes keys, and may drop Shift.
+- Never press F5 (Optimized Defaults). Before F10, open the Boot tab and confirm the OS entry is
+  Boot Option #1 (a BIOS flash can erase it; see the firmware-upgrade skill).
+- Verify in-band afterwards (NUMA count, `lspci -vv` LnkCtl ASPM, BAR1 size); a stale Redfish map
+  cannot confirm anything.
+
 ## Outside BIOS (do separately)
 
 - `intel_iommu=on iommu=pt` on the OS kernel cmdline (GRUB) for passthrough.
