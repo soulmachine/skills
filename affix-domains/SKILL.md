@@ -197,7 +197,9 @@ Step 2 makes these from the **bare seed** on every sweep, usually 2–6 names. E
 
 These patterns come from the web 2.0 era. The 2025–26 corpus behind the catalog ranks has no evidence for them, so they rank by position (right after the bare seed), not by score: they are few, short, and close to the seed.
 
-| Rule | Exemplars |
+The brands below inspired the rules; they are history, not worked examples. Some do not follow their rule exactly (Shopee appends `-ee`, Reddit and Chegg come from phrases, Trello keeps the double of one word). Generate only by the four rules above.
+
+| Rule | Inspired by |
 |---|---|
 | 1 | Digg (dig), Fiverr (fiver), Gett (get), Reddit ("read it"), Chegg ("chicken and egg") |
 | 2 | Moovit ("move it"), Noom ("moon" reversed), Shopee (shop) |
