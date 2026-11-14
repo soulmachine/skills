@@ -31,6 +31,9 @@ re-check chassis state before any subsequent BIOS work.
 
 ## Workflow B — BIOS (chassis must be OFF)
 
+0. **Save the OS boot entries** while the OS is still up: `sudo efibootmgr -v > efiboot-pre.txt`,
+   and keep a copy off the host. The flash erases them (see the next section). Have the BMC KVM
+   console working, and remove any USB stick from the host if you can.
 1. Confirm with the operator that the host may go down; gracefully shut it down:
    `POST /redfish/v1/Systems/<id>/Actions/ComputerSystem.Reset {"ResetType":"GracefulShutdown"}`
    and wait for `PowerState: Off`.
@@ -42,6 +45,30 @@ re-check chassis state before any subsequent BIOS work.
    `BiosVersion` in Redfish flips mid-POST; then verify the OS comes back.
 
 Update BMC first, then BIOS (paired releases). Do not run two flashes concurrently.
+
+## A BIOS flash erases the OS boot entries
+
+Seen 2026-11-14, BIOS 0804 → 0901 with BIOS settings preserved. The settings survived, but every
+UEFI boot entry for an internal disk was gone. Only the entries the firmware finds by itself were
+left: the NIC PXE entries and any USB stick. So POST tried PXE ("Boot Error" in the SEL) and then
+**booted a USB installer stick that was still plugged in**.
+
+- **Symptom:** the host never answers SSH on its tailnet or usual address, but its LAN IP answers
+  with a **different SSH host key**. That is the stick's live system, not your OS. Power the host off
+  (`ipmitool chassis power off`) until you are ready, so nothing runs against the disks.
+- **IPMI/Redfish one-time boot overrides do not help:** `chassis bootdev disk` booted the stick again.
+  Use the KVM console (BIOS Setup Boot tab, or F8 at POST).
+- **Recovery:** boot any Linux live system (the Ubuntu Server installer works: *Help → Enter shell*;
+  `apt-get install efibootmgr` if it lacks it), then recreate each entry from `efiboot-pre.txt`:
+  ```bash
+  efibootmgr -c -d /dev/nvme0n1 -p 1 -L "<label>" -l '\EFI\<path>\<loader>.EFI' -u "<args>"
+  # e.g. ZFSBootMenu: -l '\EFI\ZBM\VMLINUZ.EFI' -u "zbm.import_policy=force zbm.set_hostid=0"
+  efibootmgr -A <usb_entry>   # deactivate the stick's entry
+  efibootmgr                  # new entries first in BootOrder
+  ```
+  Repeat per mirror disk. The installer's `reboot` may hang (nouveau with many GPUs); use
+  `ipmitool chassis power reset`.
+- **After every BIOS flash,** run `efibootmgr` in the OS and compare with `efiboot-pre.txt`.
 
 ## If the BMC is bricked in flash mode (the "3ed" state)
 

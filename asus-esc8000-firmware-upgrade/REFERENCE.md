@@ -80,11 +80,15 @@ ships as OEM 0x10 with internal image-type 42 = BIOS capsule), 0x20 CPLD→11.
 | `Manager.Reset GracefulRestart` rejected | wrong enum | use `ForceRestart` on `Managers/BMC_0` |
 | Host turns ON by itself after BMC reset | power-restore policy | shut host down AFTER any BMC reset, then flash BIOS |
 | BMC API quiet/5xx mid-flash | normal during SPI write | keep polling; don't abort after step 5 |
+| After a BIOS flash: PXE "Boot Error" SEL events, host boots a USB stick (LAN SSH host key differs), Boot tab lists only PXE + USB | flash erased the internal-disk UEFI boot entries | power off; boot a live system via KVM; `efibootmgr -c` from the saved list (SKILL.md) |
+| `ipmitool chassis bootdev disk` (or Redfish boot override) still boots the USB stick | override does not select the internal disk on this build | KVM: BIOS Setup Boot tab or F8 at POST |
 
 ## Order of operations for a full upgrade
 
 1. Check versions; download zips; verify HPM MD5 trailer.
 2. BMC update (host running OK). Wait for BMC back + verify.
 3. If BMC was reset/updated: host probably bounced ON → graceful shutdown, confirm Off.
-4. BIOS update via wizard script. Power on. Wait for POST (5–15 min) → BiosVersion flips → OS up.
+4. Before the shutdown: `efibootmgr -v` saved off-host. BIOS update via wizard script. Power on.
+   Wait for POST (5–15 min) → BiosVersion flips → OS up. If the OS does not come up, suspect the
+   erased boot entries before anything else; then compare `efibootmgr` with the saved list.
 5. Record versions; old BMC remains in standby image slot for rollback.
