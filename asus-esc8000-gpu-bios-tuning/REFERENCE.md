@@ -60,7 +60,7 @@ to clone one ESC8000's config onto another. Always confirm both run the same BIO
 ## Fallback: BIOS Setup by hand (validated on BIOS 0901)
 
 When Redfish BIOS writes keep returning 503, set the profile in Aptio Setup over the BMC's HTML5 KVM
-(reboot, press Del in POST, or `ipmitool chassis bootdev bios` then reset). Where each item lives:
+(reboot and press Del during POST). Where each item lives:
 
 | Setting | Setup path |
 |---|---|
