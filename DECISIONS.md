@@ -1015,3 +1015,14 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** Off and on at the same point get identical prompts, so the per-point ratio is like for like; acceptance is printed per point so any drift with prompt count is visible. PROMPTS_PER 7 keeps c64 inside the dataset without repeats, which would hit the prefix cache. CAT_N 10 is all of each MT-Bench category and keeps 13 c1 passes near half an hour per k.
 **Outcome:** assumed
 **Ref:** (pending)
+
+## Q98 — llm-inference-benchmark/spec-mode — tradeoff
+
+**Question:** In which order does a spec-mode point take its prompts, given that Q97's round-robin over categories ran out of the 10-row MT-Bench categories early, so their share fell from about 62% at c1 to 18% at c64 — right where the crossover sits?
+**Options considered:** round-robin over categories (Q97) / order rows by their position inside the category, (i + 0.5) / category size, so every prefix keeps the dataset's category mix
+**Chosen:** Position-in-category order; c1's floor is twice the category count (26 for Spec-Bench), so the small categories appear there too. MT-Bench share is now 23% / 14% / 18% / 16% at c1 / c8 / c32 / c64 against 16.7% in the file. The other Q97 defaults stand.
+**Decided-by:** agent
+**Justification:** Acceptance depends on content, so a mix that drifts with concurrency confounds speedup with prompt type; a fixed order changed after logs exist makes them incomparable, so it changed before any live run.
+**Outcome:** assumed
+**Ref:** (pending)
+**Supersedes:** Q97 — its sampling order drifted the category mix with concurrency.

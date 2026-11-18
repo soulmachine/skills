@@ -144,7 +144,7 @@ bash scripts/bench_sweep.sh compare bench.spec-off.log bench.spec-k*.log
 |---|---|---|
 | `SPEC` | *(empty)* | `off` = server without a drafter, `on` = with one (the probe checks both) |
 | `K` | *(required for `on`)* | the draft tokens per step the server was started with; a label for the log. vLLM's counters give the real value: a mismatch warns and is stamped `K_MISMATCH` |
-| `CONC` / `PROMPTS_PER` | `1 8 32 64` / `7` | 7 keeps c64 at 448 of Spec-Bench's 480 prompts (no repeats, so no prefix-cache hits); every point gets at least one prompt per category |
+| `CONC` / `PROMPTS_PER` | `1 8 32 64` / `7` | 7 keeps c64 at 448 of Spec-Bench's 480 prompts (no repeats, so no prefix-cache hits). Each point takes a prefix of one fixed order that keeps the dataset's category mix, so the mix does not drift with concurrency; c1 gets at least twice as many prompts as categories (26), so the small categories show up there too |
 | `OUT` | `1024` | a cap: requests stop at the model's own EOS (`ignore_eos` would make the model repeat itself, which inflates acceptance) |
 | `TEMPERATURE` | `0` | greedy: reproducible, and off and on generate the same text. Run your production temperature as a second pass before you pick a config |
 | `DATASET` | `data/spec_bench.jsonl` | JSONL rows `{"category", "conversations": [{"role":"user","content":...}, {"role":"assistant","content":""}]}`; use your own captured prompts for the number that predicts production |
@@ -153,14 +153,15 @@ bash scripts/bench_sweep.sh compare bench.spec-off.log bench.spec-k*.log
 
 Flags that set k: vLLM `--speculative-config '{"method":...,"num_speculative_tokens":K}'`; SGLang
 `--speculative-num-draft-tokens` (EAGLE also has `--speculative-num-steps` and `--speculative-eagle-topk`;
-vary one, log the others); llama.cpp `--draft-max`. Pass `SERVER_NAME` on a local server and the
+vary one, log the others); llama.cpp `--spec-draft-n-max` (older builds: `--draft-max`). Pass `SERVER_NAME` on a local server and the
 header stamps these flags too.
 
 **What the mode does differently:**
 - **Prompts**: the vendored Spec-Bench turn 0 (480 prompts, 13 categories, Apache-2.0, see
   `data/NOTICE.md`), wrapped in the model's chat template (`--apply-chat-template`, still sent to
   `/v1/completions`), so `MODEL_REPO` must carry the real chat template. The script writes an exact
-  prompt file for each point, so off and on see the same prompts at each concurrency.
+  prompt file for each point, so off and on see the same prompts at each concurrency. The script checks
+  every point's prompt count against the dataset before the first run.
 - **Acceptance** comes from `/metrics`, read before and after each point: vLLM and llama.cpp counters
   give `accept_len` (tokens per target pass, = 1 + accepted / drafts) and `accept_rate` (accepted /
   draft tokens); SGLang has gauges only, sampled every 2 s. The mode fails without `/metrics`: vLLM
@@ -174,7 +175,8 @@ header stamps these flags too.
   and TPOT, and for each k the speedup (`x1.42` = on / off output tok/s), TPOT and accept length; the
   best k per concurrency; the crossover per k (the lowest concurrency where that k is slower than
   off); and the acceptance table by category. It warns when off and on generated more than 5% different
-  token totals at a point (temperature > 0, a lossy drafter, or failed requests).
+  token totals at a point (temperature > 0, a lossy drafter, or failed requests), and when a log is
+  stamped `K_MISMATCH` or holds `SPECFAIL` lines.
 
 Expect: speculation wins at low concurrency and on predictable text (code, extraction, summaries that
 copy the prompt), and loses once the batch fills the GPU. A larger k pays only when acceptance is high.

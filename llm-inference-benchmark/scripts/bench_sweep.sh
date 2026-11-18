@@ -42,6 +42,7 @@ if [ -n "$SPEC" ]; then                            # spec-mode defaults (set bef
   [ -f "$DATASET" ] || { echo "DATASET not found: $DATASET" >&2; exit 1; }
   LOG="${LOG:-./bench.spec-$([ "$SPEC" = on ] && echo "k$K" || echo off).log}"
   NCAT=$(python3 "$SPECPY" categories "$DATASET" | grep -c .); [ "$NCAT" -ge 1 ] || NCAT=1
+  MINP=$(( 2 * NCAT ))                             # c1 floor: enough prompts for small categories to show up
 fi
 export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 MODEL_REPO="${MODEL_REPO:-moonshotai/Kimi-K2.6}"   # tokenizer source, resolved offline from the HF cache
@@ -85,7 +86,12 @@ case "$SPEC:$rc" in
   *:2)   die "SPEC=$SPEC needs the server's /metrics (vLLM: on by default; SGLang: --enable-metrics; llama.cpp: --metrics): $SPEC_STATE" ;;
   on:1)  die "SPEC=on but the probe saw no drafting: is the server running with a drafter?" ;;
 esac
-if [ -n "$SPEC" ]; then
+if [ -n "$SPEC" ]; then   # fail now, not after hours of earlier points, if the dataset is too small
+  for c in $CONC; do np=$(( c * PROMPTS_PER )); [ "$np" -lt "$MINP" ] && np=$MINP
+    python3 "$SPECPY" sample "$DATASET" "$np" >/dev/null || exit 1; done
+  if [ "$SPEC" = on ] && [ "$CAT_N" -gt 0 ]; then
+    for cat in $(python3 "$SPECPY" categories "$DATASET"); do python3 "$SPECPY" sample "$DATASET" "$CAT_N" "$cat" >/dev/null || exit 1; done
+  fi
   WORK=$(mktemp -d); POLLPID=""
   trap '[ -n "$POLLPID" ] && kill "$POLLPID" 2>/dev/null; rm -rf "$WORK"' EXIT
 fi
@@ -99,11 +105,11 @@ header() {
     echo "# tool: sglang.bench_serving --backend sglang-oai (OpenAI /v1/completions, engine-agnostic; client image $BENCH_IMG, own netns)"
     echo "# server /v1/models: $(curl -s "http://$TARGET_HOST:$PORT/v1/models" 2>/dev/null | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"][0];print(d["id"],"max_model_len="+str(d.get("max_model_len")))' 2>/dev/null || echo '?')"
     if [ -n "$SERVER_NAME" ]; then
-      echo "# launch: $(docker inspect --format '{{join .Args " "}}' "$SERVER_NAME" 2>/dev/null | grep -oE '[-][-](mem-fraction-static|kv-cache-dtype|context-length|max-model-len|gpu-memory-utilization|tp-size|tensor-parallel-size|chunked-prefill-size|max-num-seqs|quantization|moe-backend|speculative[-a-z]*|spec-type|draft-max|draft-min|model-draft)[ =][^ ]+' | tr '\n' ' ')"
+      echo "# launch: $(docker inspect --format '{{join .Args " "}}' "$SERVER_NAME" 2>/dev/null | grep -oE '[-][-](mem-fraction-static|kv-cache-dtype|context-length|max-model-len|gpu-memory-utilization|tp-size|tensor-parallel-size|chunked-prefill-size|max-num-seqs|quantization|moe-backend|spec[-a-z]*|draft-max|draft-min|model-draft)[ =][^ ]+' | tr '\n' ' ')"
       echo "# kvpool: $(docker logs "$SERVER_NAME" 2>&1 | grep -oiE '#tokens: [0-9]+|GPU KV cache size: [0-9,]+ tokens' | tail -1)"
     fi
     if [ -n "$SPEC" ]; then
-      echo "# grid: CONC=[$CONC] dataset=$(basename "$DATASET") sha256=$(sha256sum "$DATASET" | cut -c1-16) out=$OUT prompts_per=$PROMPTS_PER min_prompts=$NCAT temperature=$TEMPERATURE eos=natural chat_template=on"
+      echo "# grid: CONC=[$CONC] dataset=$(basename "$DATASET") sha256=$(sha256sum "$DATASET" | cut -c1-16) out=$OUT prompts_per=$PROMPTS_PER min_prompts=$MINP temperature=$TEMPERATURE eos=natural chat_template=on"
       echo "# spec: SPEC=$SPEC K=${K:--} probe=${SPEC_STATE// /_} cat_n=$CAT_N"
       echo "# metrics: SPECPOINT/SPECCAT lines (retokenized tokens, token-weighted TPOT) — the client's own throughput/TPOT lines miscount tokens once requests stop at EOS"
     else
@@ -162,7 +168,7 @@ run() {
 
 for c in $CONC; do
   np=$(( c * PROMPTS_PER )); [ "$np" -ge 1 ] || np=1
-  [ -n "$SPEC" ] && [ "$np" -lt "$NCAT" ] && np=$NCAT   # every point covers every category
+  [ -n "$SPEC" ] && [ "$np" -lt "$MINP" ] && np=$MINP   # floor: see MINP
   run "$c" "$np"
 done
 # Acceptance depends on content, not concurrency: one c1 pass per category, mixed sweep above.

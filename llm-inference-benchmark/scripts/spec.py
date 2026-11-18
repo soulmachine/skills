@@ -123,9 +123,10 @@ def categories(rows):
 def sample(rows, n, category=None):
     if category:
         pool = [r for r in rows if r.get("category") == category]
-    else:  # round-robin over categories, so every prefix mixes them
+    else:  # order by position inside the category, so every prefix keeps the dataset's category mix
         groups = [[r for r in rows if r.get("category") == c] for c in categories(rows)] or [rows]
-        pool = [g[i] for i in range(max(map(len, groups))) for g in groups if i < len(g)]
+        keyed = [((i + 0.5) / len(g), gi, r) for gi, g in enumerate(groups) for i, r in enumerate(g)]
+        pool = [r for _, _, r in sorted(keyed, key=lambda t: t[:2])]
     if n > len(pool):
         sys.exit(f"spec.py sample: need {n} prompts{' in ' + category if category else ''}, "
                  f"dataset has {len(pool)} — lower PROMPTS_PER/CONC/CAT_N or use a bigger DATASET")
@@ -140,7 +141,7 @@ def convert(path):
 
 
 def parse_log(path):
-    log = {"path": path, "points": {}, "cats": {}, "grid": None, "model": None, "spec": {}}
+    log = {"path": path, "points": {}, "cats": {}, "grid": None, "model": None, "spec": {}, "fails": 0}
     with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.rstrip("\n")
@@ -150,6 +151,8 @@ def parse_log(path):
                 log["model"] = line.split(":", 1)[1].split()[0] if line.split(":", 1)[1].split() else "?"
             elif line.startswith("# spec:"):
                 log["spec"] = dict(kv.split("=", 1) for kv in line[7:].split() if "=" in kv)
+            elif line.startswith("SPECFAIL"):
+                log["fails"] += 1
             elif line.startswith(("SPECPOINT", "SPECCAT")):
                 kv = dict(x.split("=", 1) for x in line.split()[1:])
                 if line.startswith("SPECCAT"):
@@ -166,6 +169,11 @@ def compare(paths, out=print):
             if lg[key] != logs[0][key]:
                 out(f"refusing: {key} differs\n  {logs[0]['path']}: {logs[0][key]}\n  {lg['path']}: {lg[key]}")
                 return 1
+    for lg in logs:
+        if "K_MISMATCH" in lg["spec"].get("probe", ""):
+            out(f"warning: {lg['path']}: the server drafted a different k than K={lg['spec'].get('K')} ({lg['spec']['probe']})")
+        if lg["fails"]:
+            out(f"warning: {lg['path']}: {lg['fails']} point(s) produced no client result (SPECFAIL)")
     off = next((lg for lg in logs if lg["spec"].get("SPEC") == "off"), None)
     ons = sorted((lg for lg in logs if lg["spec"].get("SPEC") == "on"), key=lambda lg: float(lg["spec"]["K"]))
     out(f"model {logs[0]['model']}  {logs[0]['grid'][2:] if logs[0]['grid'] else ''}")
@@ -230,7 +238,8 @@ vllm:num_requests_running{engine="0"} 1.0"""
     s = parse_metrics(vllm)
     assert (s["engine"], s["drafts"], s["draft_tokens"], s["accepted_tokens"]) == ("vllm", 100, 400, 250), s
     b = parse_metrics(vllm.replace(" 100.0", " 50.0").replace(" 400.0", " 200.0").replace(" 250.0", " 150.0"))
-    assert moved(b, s, 4) == (0, "on draft_per=4.00"), moved(b, s, 4)
+    code, word = moved(b, s, 4)
+    assert code == 0 and "draft_per=4.00" in word and "K_MISMATCH" not in word, word
     assert moved(b, s, 5)[1].endswith("K_MISMATCH")
     assert moved(s, s) == (1, "off")
     assert acceptance(b, s, []) == ("3.00", "0.500", "4.00"), acceptance(b, s, [])
@@ -247,11 +256,17 @@ vllm:num_requests_running{engine="0"} 1.0"""
     assert moved({}, sg_off) == (1, "off") and moved({}, sg_on) == (0, "on")
     assert acceptance({}, sg_on, [sg_on, sg_off, sg_on]) == ("3.10", "0.700", "-")
 
-    rows = [{"category": c, "i": i} for c, n in (("a", 3), ("b", 1), ("c", 2)) for i in range(n)]
-    assert [(r["category"], r["i"]) for r in sample(rows, 5)] == [("a", 0), ("b", 0), ("c", 0), ("a", 1), ("c", 1)]
-    assert len(sample(rows, 2, "a")) == 2 and categories(rows) == ["a", "b", "c"]
+    # Contract: every prefix keeps the dataset's category mix (acceptance depends on content, so a mix
+    # that drifts with concurrency would confound the speedup), and the order is the same every run.
+    rows = [{"category": c, "i": i} for c, n in (("big", 40), ("small", 10)) for i in range(n)]
+    for n in range(1, 51):
+        got = sum(r["category"] == "small" for r in sample(rows, n))
+        assert abs(got - n * 0.2) <= 1, (n, got)
+    assert sample(rows, 30) == sample(rows, 30) and len(sample(rows, 2, "small")) == 2
+    assert all(r["category"] == "small" for r in sample(rows, 10, "small"))
+    assert categories(rows) == ["big", "small"]
     try:
-        sample(rows, 7)
+        sample(rows, 51)
         raise AssertionError("sample must refuse a dataset that is too small")
     except SystemExit:
         pass
@@ -284,6 +299,13 @@ vllm:num_requests_running{engine="0"} 1.0"""
     assert "crossover k=2: c=8" in text and "crossover k=4: none" in text, text
     assert "c=8 k=4 generated 1500 tokens" in text, text
     assert "coding" in text and text.index("k=2") < text.index("k=4"), text
+    k5 = mk("SPEC=on K=5 probe=on_draft_per=4.00_K_MISMATCH", [(1, 90, 1000)])
+    with open(k5, "a") as f:
+        f.write("SPECFAIL c=8 no client result\n")
+    lines = []
+    compare([off, k5], lines.append)
+    assert "different k than K=5" in lines[0] and "1 point(s) produced no client result" in lines[1], lines
+    os.unlink(k5)
     bad = mk("SPEC=on K=6 probe=on", [(1, 99, 1000)], g=grid.replace("out=1024", "out=256"))
     lines = []
     assert compare([off, bad], lines.append) == 1 and "refusing: grid differs" in lines[0], lines
