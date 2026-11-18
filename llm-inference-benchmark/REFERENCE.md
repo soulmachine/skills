@@ -421,7 +421,8 @@ overhead, no drafts). The larger effect was the slot count: no-spec c1 went from
 speculation with `random-ids` prompts**: the model's output on random tokens degenerates into
 repetition, the drafter accepts 100 % of it and the client reports 26.5 tok/s / TPOT 24 ms / ITL 0.03 ms
 (log `bench.log.q2kxl-reap770-p4-ngram-mod-c1-0905`) — a measurement of the degenerate output, not of
-serving. DSpark (RadixArk draft, converted) needs two fixes to pay: the draft on the GPU holding the target's
+serving. (Since 2026-11-18 `bench_sweep.sh` aborts a plain sweep against a drafter; measure speculation with
+`SPEC=off/on`, see SKILL.md.) DSpark (RadixArk draft, converted) needs two fixes to pay: the draft on the GPU holding the target's
 `output.weight` (`--spec-draft-device CUDA7`) and the deploy skill's `kimi-k3-rs-rollback.patch`
 (bounded recurrent-state rollback for KIMI_K3). With both, on the IQ2_XXS target at 4 slots: probes
 12.8 → 15.7 tok/s on free-form prompts (+23 %), 12.9 → 22.2 on a copy-heavy prompt (+72 %); bench c1

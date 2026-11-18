@@ -975,3 +975,43 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Justification:** A point lookup per TAKEN is up to ~500 API calls in escalated mode. `cf registrar registrations list` returns 20, caps at 50 and hides its cursor, and the account holds 181 registrations, so it misses most of them; the zones list pages fully (183 zones in four pages), and Cloudflare Registrar requires the zone on the same account, so it is a superset of the registrations. A zone the user points here from another registrar is theirs too. Skipping toward TAKEN is the only safe failure: an OWNED must never be guessed, and TAKEN is what the sweep said before this lane existed.
 **Outcome:** applied
 **Ref:** affix-domains/scripts/check_owned.sh; SKILL.md "Your own accounts"
+
+## Q94 — llm-inference-benchmark/spec-mode — deviation
+
+**Question:** How much of the speculative decoding mode to build, given the design grilling stopped after round 1 with the round-2 questions (client tool, vendored Spec-Bench, turn 0 only, chat template, natural EOS with OUT=1024, per-category c1 passes, SPEC=off/on plus compare, random-ids guard, required metrics) unanswered, and round 1 had excluded sweeps over draft settings?
+**Options considered:** doc section only / build the full mode with the round-2 recommendations as written plus a k sweep / resume the design session first
+**Chosen:** Build the full mode with every round-2 recommendation as written, and add a sweep over k (draft tokens per step) that round 1 had left out.
+**Decided-by:** human
+**Justification:** The user picked "build the full mode" after reading the options; the k sweep follows the evaluation method in the inference-engineering-academy speculative decoding note (sweep k 2 to 6 and concurrency 1/8/32/64, find the crossover).
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q95 — llm-inference-benchmark/spec-mode — tradeoff
+
+**Question:** How does a k sweep run when the script cannot restart the server with a new k?
+**Options considered:** script restarts the server per k (engine-specific, needs launch commands) / one SPEC=on log per k, operator restarts the server, compare joins one off log with N on logs
+**Chosen:** One log per k. `K` is a required label in SPEC=on mode, stamped in the header next to the measured draft tokens per draft (counter-based engines); a mismatch warns. `compare` takes the off log and any number of on logs and prints speedup per (k, concurrency), the best k per concurrency and the crossover per k.
+**Decided-by:** agent
+**Justification:** Keeps the script engine-agnostic (methodology rule 4) and matches the round-1 reason for leaving server-config loops out; measuring k from the counters catches a stale server that would otherwise mislabel a log.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q96 — llm-inference-benchmark/spec-mode — gate-resolution
+
+**Question:** Which token count do spec-mode throughput and TPOT use, now that requests stop at EOS?
+**Options considered:** the client's output_len / retokenized generated text plus summed ITLs from `--output-details`
+**Chosen:** Retokenized total for throughput; token-weighted TPOT = summed ITL time / (retokenized tokens − completed requests). ITL itself is not reported (one SSE chunk carries several tokens under speculation).
+**Decided-by:** agent
+**Justification:** In the pinned client (sglang v0.5.12.post1, `async_request_openai_completions`) output_len falls back to the requested max_tokens when the stream carries no usage, which vLLM omits unless asked; with EOS on, that overstates tokens. Both off and on use the same count, so the A/B stays like for like.
+**Outcome:** applied
+**Ref:** (pending)
+
+## Q97 — llm-inference-benchmark/spec-mode — tradeoff
+
+**Question:** Which prompts does each spec-mode point send, given the client's custom loader shuffles and silently returns fewer rows when the file is short?
+**Options considered:** pass the whole file and let the client sample / write an exact prompt file per point
+**Chosen:** The script writes a file of exactly num_prompts rows per point: a fixed category-interleaved order of the dataset, its first N rows, with a floor of one prompt per category; it fails when the dataset is too small. Spec-mode defaults: CONC "1 8 32 64", PROMPTS_PER 7 (c64 = 448 of Spec-Bench's 480 turn-0 prompts), CAT_N 10 per category pass. The dataset sha256 goes in the grid line.
+**Decided-by:** agent
+**Justification:** Off and on at the same point get identical prompts, so the per-point ratio is like for like; acceptance is printed per point so any drift with prompt count is visible. PROMPTS_PER 7 keeps c64 inside the dataset without repeats, which would hit the prefix cache. CAT_N 10 is all of each MT-Bench category and keeps 13 c1 passes near half an hour per k.
+**Outcome:** assumed
+**Ref:** (pending)
