@@ -1,6 +1,6 @@
 ---
 name: llm-inference-benchmark
-description: Benchmark OpenAI-compatible LLM inference servers (vLLM, SGLang, or anything serving /v1/completions; local, cross-host via TARGET_HOST=<peer LAN IP>, or behind a TLS+Bearer proxy via --base-url + OPENAI_API_KEY) with sglang.bench_serving run as a standalone dockerized client — one engine-agnostic script (scripts/bench_sweep.sh), default sweep c1→c128 uncapped, sustained-load grid (uniform prompts-per-concurrency), self-describing PROVENANCE log headers — collecting TTFT, TPOT, ITL, and input/output/total token throughput. From those metrics, derive insights: (1) the min and max knee of the saturation curve — min = highest concurrency where TTFT/TPOT is still flat (latency-optimal cap), max = where output throughput goes flat (throughput ceiling) — to pick a production --max-num-seqs / --max-running-requests; (2) whether the box is prefill- or decode-bound (the min-vs-max-knee gap, IN/TTFT vs 1/TPOT, or a prefill-heavy/decode-heavy shape sweep); (3) whether a throughput plateau is a real compute/comm knee or a false one (a binding MAX_SEQS cap or KV exhaustion) — via the flat-throughput+flat-TPOT+rising-TTFT signature, the running-vs-offered gauges (num_running/num_waiting), and a raise-the-cap-and-re-measure check. Speculative decoding mode (SPEC=off|on): A/B on real text (vendored Spec-Bench, chat template, natural EOS) with acceptance from the server's /metrics, a k sweep over draft tokens per step (one run per k), per-category acceptance, and a compare step that prints speedup, TPOT, the best k per concurrency and the crossover concurrency where speculation stops paying; plain sweeps abort when the server drafts. Includes verified Kimi-K2.6 baselines on 8× RTX PRO 6000 Blackwell (INT4 SGLang/vLLM, fp8-vs-bf16 KV, NVFP4 marlin-vs-b12x, Caddy proxy overhead). Use when asked to benchmark or compare LLM servers (tokens/sec, TTFT, TPOT, ITL) across engines, quantizations, KV-cache dtypes or MoE backends, find the saturation knee / pick a concurrency cap, determine prefill- vs decode-boundedness, evaluate speculative decoding (EAGLE, MTP, DFlash, draft model, n-gram), pick k (num_speculative_tokens / draft tokens) or find where speculation stops paying, run a cross-host A/B, quantify reverse-proxy overhead, interpret why high-concurrency numbers look inflated (short-burst trap) or why two sweeps aren't comparable (MAX_SEQS / grid mismatch), or debug a sweep that prints SWEEP_DONE with no metrics.
+description: Benchmark OpenAI-compatible LLM inference servers (vLLM, SGLang, or anything serving /v1/completions; local, cross-host via TARGET_HOST=<peer LAN IP>, or behind a TLS+Bearer proxy via --base-url + OPENAI_API_KEY) with sglang.bench_serving run as a standalone dockerized client — one engine-agnostic script (scripts/bench_sweep.sh), default sweep c1→c128 uncapped, sustained-load grid (uniform prompts-per-concurrency), self-describing PROVENANCE log headers — collecting TTFT, TPOT, ITL, and input/output/total token throughput. From those metrics, derive insights: (1) the min and max knee of the saturation curve — min = highest concurrency where TTFT/TPOT is still flat (latency-optimal cap), max = where output throughput goes flat (throughput ceiling) — to pick a production --max-num-seqs / --max-running-requests; (2) whether the box is prefill- or decode-bound (the min-vs-max-knee gap, IN/TTFT vs 1/TPOT, or a prefill-heavy/decode-heavy shape sweep); (3) whether a throughput plateau is a real compute/comm knee or a false one (a binding MAX_SEQS cap or KV exhaustion) — via the flat-throughput+flat-TPOT+rising-TTFT signature, the running-vs-offered gauges (num_running/num_waiting), and a raise-the-cap-and-re-measure check. The sweep refuses a server that drafts (speculative decoding): measure drafters with the spec-bench skill. Includes verified Kimi-K2.6 baselines on 8× RTX PRO 6000 Blackwell (INT4 SGLang/vLLM, fp8-vs-bf16 KV, NVFP4 marlin-vs-b12x, Caddy proxy overhead). Use when asked to benchmark or compare LLM servers (tokens/sec, TTFT, TPOT, ITL) across engines, quantizations, KV-cache dtypes or MoE backends, find the saturation knee / pick a concurrency cap, determine prefill- vs decode-boundedness, run a cross-host A/B, quantify reverse-proxy overhead, interpret why high-concurrency numbers look inflated (short-burst trap) or why two sweeps aren't comparable (MAX_SEQS / grid mismatch), or debug a sweep that prints SWEEP_DONE with no metrics. For speculative decoding (EAGLE, MTP, DFlash, draft model, n-gram, picking k) use spec-bench instead.
 ---
 
 # Benchmark OpenAI-compatible LLM inference servers
@@ -49,10 +49,11 @@ CONC="1 8 16 64 128" PROMPTS_PER=8 LOG=./bench.log bash scripts/bench_sweep.sh
 | `LOG` | `./bench.log` | output log (PROVENANCE header + per-point metrics + parsed summary table) |
 | `BENCH_IMG` | the SGLang image | client image |
 
-Every run first sends one 256-token probe and reads the server's speculative decoding counters. If the
-server drafts, a plain `random-ids` sweep **aborts** (random prompts make the drafter accept degenerate
-repeats: the fake 26.5 tok/s in REFERENCE.md); use the speculative decoding mode below, or `FORCE=1`. A
-server without `/metrics` gets a warning and `spec=unknown` in the header.
+Every run first sends one greedy 256-token request and reads `/metrics`. If the server drafts
+(speculative decoding), the sweep **refuses to run**: random-ids prompts make the drafter accept degenerate
+repeats and report fake tok/s (the 26.5 tok/s trap in REFERENCE.md). Measure a drafting server with the
+**spec-bench** skill, on real prompts. A server with no engine metrics gets a warning and `spec=unknown`
+in the header.
 
 ## Methodology rules (violating these produced wrong numbers — see REFERENCE.md)
 1. **Sustained load**: keep `num_prompts = PROMPTS_PER × concurrency` (uniform `prompts_per=8`).
@@ -122,65 +123,6 @@ compare per-request prefill time (`IN/prefill_rate`) vs decode time (`OUT × TPO
 directly sweep two shapes — prefill-heavy (`IN=4096 OUT=16`) vs decode-heavy (`IN=128 OUT=2048`) —
 and see which one saturates first.
 
-## Speculative decoding mode (`SPEC=off|on`)
-
-Method from [Speculative decoding: when it helps and when it doesn't](https://huggingface.co/datasets/inference-engineering-academy/llm-inference-notes/raw/main/articles/speculative-decoding.md):
-measure acceptance on real prompts, sweep k (draft tokens per step, 2 to 6 is typical) and concurrency
-(1, 8, 32, 64), report inter-token latency and throughput at each point, and find the **crossover
-concurrency** where speculation stops paying. Enable speculation only below it.
-
-The script cannot restart the server, so each server config is one run, and `compare` joins them:
-
-```bash
-SPEC=off bash scripts/bench_sweep.sh                       # server WITHOUT a drafter -> bench.spec-off.log
-for k in 2 3 4 5 6; do
-  # restart the server with the drafter at k (see the table below), wait for /v1/models, then:
-  SPEC=on K=$k bash scripts/bench_sweep.sh                 # -> bench.spec-k$k.log
-done
-bash scripts/bench_sweep.sh compare bench.spec-off.log bench.spec-k*.log
-```
-
-| Knob | Default | Meaning |
-|---|---|---|
-| `SPEC` | *(empty)* | `off` = server without a drafter, `on` = with one (the probe checks both) |
-| `K` | *(required for `on`)* | the draft tokens per step the server was started with; a label for the log. vLLM's counters give the real value: a mismatch warns and is stamped `K_MISMATCH` |
-| `CONC` / `PROMPTS_PER` | `1 8 32 64` / `7` | 7 keeps c64 at 448 of Spec-Bench's 480 prompts (no repeats, so no prefix-cache hits). Each point takes a prefix of one fixed order that keeps the dataset's category mix, so the mix does not drift with concurrency; c1 gets at least twice as many prompts as categories (26), so the small categories show up there too |
-| `OUT` | `1024` | a cap: requests stop at the model's own EOS (`ignore_eos` would make the model repeat itself, which inflates acceptance) |
-| `TEMPERATURE` | `0` | greedy: reproducible, and off and on generate the same text. Run your production temperature as a second pass before you pick a config |
-| `DATASET` | `data/spec_bench.jsonl` | JSONL rows `{"category", "conversations": [{"role":"user","content":...}, {"role":"assistant","content":""}]}`; use your own captured prompts for the number that predicts production |
-| `CAT_N` | `10` | `SPEC=on`: one c1 pass of N prompts per category (13 for Spec-Bench) for the acceptance table; `0` skips them |
-| `LOG` | `bench.spec-off.log` / `bench.spec-k<K>.log` | |
-
-Flags that set k: vLLM `--speculative-config '{"method":...,"num_speculative_tokens":K}'`; SGLang
-`--speculative-num-draft-tokens` (EAGLE also has `--speculative-num-steps` and `--speculative-eagle-topk`;
-vary one, log the others); llama.cpp `--spec-draft-n-max` (older builds: `--draft-max`). Pass `SERVER_NAME` on a local server and the
-header stamps these flags too.
-
-**What the mode does differently:**
-- **Prompts**: the vendored Spec-Bench turn 0 (480 prompts, 13 categories, Apache-2.0, see
-  `data/NOTICE.md`), wrapped in the model's chat template (`--apply-chat-template`, still sent to
-  `/v1/completions`), so `MODEL_REPO` must carry the real chat template. The script writes an exact
-  prompt file for each point, so off and on see the same prompts at each concurrency. The script checks
-  every point's prompt count against the dataset before the first run.
-- **Acceptance** comes from `/metrics`, read before and after each point: vLLM and llama.cpp counters
-  give `accept_len` (tokens per target pass, = 1 + accepted / drafts) and `accept_rate` (accepted /
-  draft tokens); SGLang has gauges only, sampled every 2 s. The mode fails without `/metrics`: vLLM
-  has it by default, SGLang needs `--enable-metrics`, llama.cpp needs `--metrics`.
-- **Numbers**: each point writes a `SPECPOINT` line (category passes: `SPECCAT`). Throughput uses the
-  retokenized output, and TPOT is token-weighted (decode time / tokens after the first). Ignore the
-  client's own throughput and TPOT lines in this mode: once requests stop at EOS it counts
-  `max_tokens` for streams without usage (vLLM). Report TPOT, not ITL: with speculation one SSE chunk
-  carries several tokens.
-- **`compare`** refuses logs whose grid or model differ. It prints per concurrency the off throughput
-  and TPOT, and for each k the speedup (`x1.42` = on / off output tok/s), TPOT and accept length; the
-  best k per concurrency; the crossover per k (the lowest concurrency where that k is slower than
-  off); and the acceptance table by category. It warns when off and on generated more than 5% different
-  token totals at a point (temperature > 0, a lossy drafter, or failed requests), and when a log is
-  stamped `K_MISMATCH` or holds `SPECFAIL` lines.
-
-Expect: speculation wins at low concurrency and on predictable text (code, extraction, summaries that
-copy the prompt), and loses once the batch fills the GPU. A larger k pays only when acceptance is high.
-
 ## Variants
 - **Cross-host**: `TARGET_HOST=<peer-lan-ip>`; `MODEL_REPO` must be cached client-side (it's only the
   tokenizer — an NVFP4 host benching a remote INT4 server uses its local NVFP4 repo).
@@ -189,10 +131,6 @@ copy the prompt), and loses once the batch fills the GPU. A larger k pays only w
   Measured Caddy overhead on the reference host: ~1% throughput, +15 ms TTFT @ c1 — REFERENCE.md.
 
 ## Troubleshooting
-Plain sweep aborts with "the server runs speculative decoding" → use `SPEC=off/on`, or `FORCE=1` if
-you really want random-ids numbers; `SPEC=on` fails with "no drafting" → the server was not restarted
-with the drafter; `SPECFAIL` lines → the client produced no result, check the errors above them (a
-tokenizer without a chat template fails `--apply-chat-template`).
 PROVENANCE header prints but **zero metrics + instant SWEEP_DONE** → a host INPUT firewall is
 dropping the bridged client (src `172.17.x`); `"<repo> not in HF cache"` → cache the tokenizer repo
 on the **client** host; empty `/v1/models` in the header → wrong `TARGET_HOST`/`PORT` or server not

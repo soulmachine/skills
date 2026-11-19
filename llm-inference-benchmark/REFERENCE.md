@@ -412,25 +412,15 @@ c16/c32 flatten at ~15.5 instead of regressing — fewer expert copies per promp
 stall per served token. TTFT beyond c8 is still prompt queueing. Production cap for the hybrid: c8.
 This supersedes the 09-04 curve as the hybrid's reference.
 
-**Speculative decoding (E6, on REAP-770, all at `--parallel 4`):** `--spec-type ngram-mod` gave
-+5 % single-stream on a prompt that copies its own input (rewrite task: 9.93 → 10.48 tok/s, 36 % of
-drafted tokens accepted, identical greedy output) and −2–3 % on free-form prompts (verification
-overhead, no drafts). The larger effect was the slot count: no-spec c1 went from 7.44 tok/s / TPOT
-121 ms at `--parallel 16` to **8.99 tok/s / TPOT 98 ms at `--parallel 4`** (log
-`bench.log.q2kxl-reap770-p4-nospec-c1-0905`) — size the slot count to the real concurrency. **Never benchmark ngram
-speculation with `random-ids` prompts**: the model's output on random tokens degenerates into
-repetition, the drafter accepts 100 % of it and the client reports 26.5 tok/s / TPOT 24 ms / ITL 0.03 ms
-(log `bench.log.q2kxl-reap770-p4-ngram-mod-c1-0905`) — a measurement of the degenerate output, not of
-serving. (Since 2026-11-18 `bench_sweep.sh` aborts a plain sweep against a drafter; measure speculation with
-`SPEC=off/on`, see SKILL.md.) DSpark (RadixArk draft, converted) needs two fixes to pay: the draft on the GPU holding the target's
-`output.weight` (`--spec-draft-device CUDA7`) and the deploy skill's `kimi-k3-rs-rollback.patch`
-(bounded recurrent-state rollback for KIMI_K3). With both, on the IQ2_XXS target at 4 slots: probes
-12.8 → 15.7 tok/s on free-form prompts (+23 %), 12.9 → 22.2 on a copy-heavy prompt (+72 %); bench c1
-13.98 tok/s / TPOT 49 ms (`bench.log.iq2xxs-p4-dspark-rsrollback-c1c4-0905`) vs 10.14 tok/s / TPOT 78 ms
-without speculation (`bench.log.iq2xxs-p4-nospec-c1c4-0905`); at c4 it loses (14.9 tok/s vs
-18.30 tok/s, TPOT 221 vs 135 ms). Without the rollback patch the same draft was −5 to −15 % on free-form
-text. Root cause, memory math and caveats in the deploy skill's REFERENCE.md.
+**Slot count (E6, REAP-770, no drafter):** c1 went from 7.44 tok/s / TPOT 121 ms at `--parallel 16`
+to **8.99 tok/s / TPOT 98 ms at `--parallel 4`** (`bench.log.q2kxl-reap770-p4-nospec-c1-0905`): size the
+slot count to the real concurrency.
 
+**Random-ids prompts against a drafter give fake numbers:** the model's output on random tokens degenerates
+into repetition, the drafter accepts 100 % of it, and the client reports 26.5 tok/s / TPOT 24 ms / ITL
+0.03 ms (ngram-mod, `bench.log.q2kxl-reap770-p4-ngram-mod-c1-0905`). This is why `bench_sweep.sh` refuses a
+drafting server. The speculative decoding results on this host (ngram-mod, DSpark with the rollback patch,
+the interactive DSpark profile) are in the spec-bench skill's REFERENCE.md.
 
 **Prefill knob A/Bs (IQ2_XXS, 4 slots, no draft, same binary; 2026-09-05 evening):**
 
@@ -441,11 +431,6 @@ text. Root cause, memory math and caveats in the deploy skill's REFERENCE.md.
 | `GGML_CUDA_GRAPH_OPT=1` | 10.03 / 5.50 s / 78.5 ms | 18.31 / 17.4 s / 151.0 ms |
 
 Graphs are worth ~17 % of decode; neither knob moves prefill. Logs `bench.log.iq2xxs-p4-nospec-*-c1c4-0905`.
-
-**Interactive profile (REAP-770, 2 slots x 8192, DSpark + rollback, draft on GPU 7, fork `…-lip-rsrb`):**
-c1 **12.96 tok/s, TTFT 3.95 s, TPOT 61.9 ms**; c2 14.01 tok/s, TTFT 5.9 s, TPOT 113 ms
-(`bench.log.reap770-p2-dspark-rsrollback-c1c2-0905`). Versus the no-draft REAP-770 at 4 slots
-(8.99 tok/s, TPOT 98 ms): +44 % / −37 %.
 
 **Why REAP-770 looked slower than IQ2_XXS in the E5 sweep (121 vs 71 ms TPOT at c1):** placement,
 not kernels. The 6 GiB fit margin left ~20 GiB of REAP-770's experts on the CPU (nvidia-smi total

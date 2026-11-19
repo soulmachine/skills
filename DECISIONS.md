@@ -1026,3 +1026,14 @@ An investigation in the same session corrected a belief formed that night: a `pr
 **Outcome:** assumed
 **Ref:** (pending)
 **Supersedes:** Q97 — its sampling order drifted the category mix with concurrency.
+
+## Q99 — llm-inference-benchmark/spec-mode — deviation
+
+**Question:** Where does speculative decoding measurement live, now that the private spec-bench skill measures drafters on real prompts for both benchmark hardwares?
+**Options considered:** keep the SPEC=off|on mode here / move it to spec-bench and keep only a drafting check here
+**Chosen:** Moved. `bench_sweep.sh` loses SPEC mode, `compare`, `FORCE=1` and the vendored Spec-Bench copy, and `scripts/spec.py` is deleted. The sweep now sends one greedy request, reads `/metrics`, and refuses a server whose draft counters moved (random-ids prompts give fake tok/s); with no engine metrics it warns and stamps `spec=unknown`. The speculative results in REFERENCE.md moved with it; the 26.5 tok/s trap stays here as the reason for the refusal.
+**Decided-by:** human
+**Justification:** The user asked to remove the speculative content from this skill and merge it into spec-bench, to keep one thin `spec.py` that the spec-bench harness copies on its hosts, and to refuse random prompts against a drafter outright (2026-11-19).
+**Outcome:** applied
+**Ref:** (this commit)
+**Supersedes:** Q98 — the spec mode it tuned no longer exists here.
