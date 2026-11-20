@@ -229,7 +229,7 @@ auto-added: the era's dominant suffix is a trailing "AI" word (~60 hot companies
 | 5 | agent- | AI & agents | 2 | autonomous doer (Agentforce) |
 | 6 | ai- | AI & agents | 3 | AI-native signal (AI21) |
 | 7 | up- | Scale & depth | 1 | rising (Upwork) |
-| 8 | hey- | Call-to-action | 1 | friendly hail (Hey.com) |
+| 8 | hey- | Call-to-action | 1 | friendly hail (HeyGen, heylinger.com) |
 | 9 | chat- | AI & agents | 1 | conversational (ChatGPT) |
 | 10 | the- | Possessive | 1 | definitive (TheVerge) |
 | 11 | go- | Call-to-action | 0 | momentum (GoDaddy, GoPro) |
